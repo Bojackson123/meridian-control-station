@@ -9,9 +9,9 @@ namespace Mcs.Core;
 /// reaches the domain unvalidated.
 /// <para>
 /// Comparison is ordinal and case-sensitive: "uav-01" and "UAV-01" are two different vehicles.
-/// That is the intended behaviour for ids the station assigns itself. M1's MAVLink adapter
-/// derives ids from system IDs and must normalise casing at that boundary, or one vehicle
-/// will render as two tracks.
+/// That is the intended behaviour for ids the station assigns itself. A MAVLink adapter deriving
+/// ids from system IDs must normalise casing at that boundary, or one vehicle will render as two
+/// tracks.
 /// </para>
 /// <para>
 /// Surrounding whitespace, on the other hand, <i>is</i> normalised: <see cref="From"/> trims

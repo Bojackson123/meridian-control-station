@@ -12,8 +12,8 @@ namespace Mcs.Core;
 /// an enum starting at 0 would do. <see cref="Altitude"/> uses that 0 as its initialisation
 /// sentinel; do not add a member for it.
 /// <para>
-/// Converting between these references (MSL to AGL requires terrain elevation) is M3's work.
-/// Until then a value must be consumed against the reference it was reported with.
+/// Converting between these references requires terrain elevation, which the station does not
+/// hold. Until it does, a value must be consumed against the reference it was reported with.
 /// </para>
 /// </remarks>
 public enum AltitudeReference
@@ -34,8 +34,8 @@ public enum AltitudeReference
 /// <remarks>
 /// MCS-004: the adapter interface shall reject any position report that does not declare an
 /// altitude reference. Pairing the two in one type is how that requirement is met at every
-/// call site at once -- a bare <c>double</c> altitude is a bug that comes due at M3, when
-/// MSL/AGL conversion arrives and there is no way to tell which values need converting.
+/// call site at once -- a bare <c>double</c> altitude is a bug that comes due the day MSL/AGL
+/// conversion arrives and there is no way to tell which values need converting.
 /// <para>
 /// Not a positional record on purpose. Positional records generate <c>init</c> accessors, and
 /// a <c>with</c> expression assigns those directly without re-running the constructor -- so
@@ -53,8 +53,8 @@ public enum AltitudeReference
 /// No <see cref="IComparable{T}"/>, and this is deliberate rather than unfinished. Ordering is
 /// undefined across references: 100 m AGL may be above or below 100 m MSL depending on terrain
 /// nobody has loaded yet, so any <c>CompareTo</c> would either lie for mixed pairs or throw
-/// from inside <c>Sort</c>, where the caller cannot see it coming. Once M3 lands terrain and
-/// conversion, comparison belongs on a service that has the terrain -- not on the value. Order
+/// from inside <c>Sort</c>, where the caller cannot see it coming. Once terrain and conversion
+/// exist, comparison belongs on the service that holds them -- not on the value. Order
 /// by <see cref="Meters"/> explicitly, after grouping by <see cref="Reference"/>.
 /// </para>
 /// <para>

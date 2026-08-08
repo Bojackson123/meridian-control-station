@@ -32,8 +32,8 @@ Mcs.Integration.Tests — a project I had not added any OpenAPI package to.
 **What it was.** A transitive supply-chain warning, unreachable in this codebase, but
 worth fixing on day one regardless: NuGetAudit promotes NU1903 to a hard error under
 `--warnaserror`, and Release builds set that by default. Left alone it would have
-surfaced as a red CI run at the M0 exit gate, where I would have been debugging it
-under "why is the smoke suite failing" instead of "what is this warning".
+surfaced later as a red CI run, where I would have been debugging it under "why is the
+smoke suite failing" instead of "what is this warning".
 
 **Carry forward.** Advisory published 2026-06-30, newer than the .NET 10 templates.
 Any freshly scaffolded webapi project will have this until the templates update.
