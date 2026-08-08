@@ -489,3 +489,6 @@ $RECYCLE.BIN/
 # node
 node_modules/
 dist/
+
+# internal documents
+internal/
