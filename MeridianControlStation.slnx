@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Mcs.Adapters/Mcs.Adapters.csproj" />
+    <Project Path="src/Mcs.Api/Mcs.Api.csproj" />
+    <Project Path="src/Mcs.Core/Mcs.Core.csproj" />
+    <Project Path="src/Mcs.Simulator/Mcs.Simulator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Mcs.Core.Tests/Mcs.Core.Tests.csproj" />
+    <Project Path="tests/Mcs.Integration.Tests/Mcs.Integration.Tests.csproj" />
+    <Project Path="tests/Mcs.System.Tests/Mcs.System.Tests.csproj" />
+  </Folder>
+</Solution>
