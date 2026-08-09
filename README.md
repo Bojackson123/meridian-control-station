@@ -11,16 +11,19 @@ exactly what runs today, and nothing here describes anything that doesn't.
 ## What runs today
 
 A hardcoded telemetry feed flying a vehicle around a closed circuit at 1 Hz, into a bounded
-in-memory store that the API layer will read from.
+in-memory store that the API layer will read from, and a Postgres database the station
+migrates on startup and reports the state of over HTTP.
 
 | | |
 | --- | --- |
 | Telemetry model and ingest boundary | working, tested |
 | Bounded store — 12 vehicles, per-vehicle history, live subscriptions | working, tested |
 | Fake vehicle feed | working, tested |
-| HTTP API | not yet — the only endpoint is the OpenAPI document |
+| Structured JSON logging | working |
+| Postgres — schema migration on startup, `/health` and `/health/db` | working, tested |
+| Telemetry HTTP API | not yet — the endpoints are the two health checks and the OpenAPI document |
 | Map console | not yet — `web/` is an empty Vite scaffold |
-| Postgres, Docker Compose, structured JSON logging | not yet |
+| Docker Compose | not yet |
 | MAVLink, mission planning, deconfliction, auth | not yet |
 
 There is no `docker compose up` yet. When there is, it will be in this README.
@@ -30,17 +33,36 @@ There is no `docker compose up` yet. When there is, it will be in this README.
 ## Running it
 
 Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download) (`global.json` pins
-10.0.302, rolling forward to the latest patch). Nothing else — no Docker, no database, no
-accounts.
+10.0.302, rolling forward to the latest patch) and a Postgres for the API to migrate. No
+accounts, nothing to sign up for.
 
 ```bash
+docker run --rm -d --name mcs-pg -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=mcs \
+  -p 5432:5432 postgres:18-alpine
+
 dotnet build
 dotnet test
 dotnet run --project src/Mcs.Api
 ```
 
-The app listens on `http://localhost:5271`. `/openapi/v1.json` serves the OpenAPI document
-in Development; every other path is a 404 until the telemetry API lands.
+`dotnet test` needs Docker running for the integration suite, which starts its own
+throwaway Postgres. The unit tests (`tests/Mcs.Core.Tests`, `tests/Mcs.Api.Tests`) need
+nothing.
+
+The app listens on `http://localhost:5271`:
+
+```bash
+curl -s localhost:5271/health      # {"status":"Healthy"}
+curl -s localhost:5271/health/db   # {"status":"Healthy","expectedSchemaVersion":1,"schemaVersion":1}
+```
+
+`/openapi/v1.json` serves the OpenAPI document in Development; every other path is a 404
+until the telemetry API lands.
+
+**Without a database the station does not start.** It retries for thirty seconds, then logs
+why and exits non-zero. An API that came up anyway would be reporting itself healthy while
+something it depends on was missing, which is the same failure the console itself is built
+to avoid — and on screen it looks like a quiet fleet rather than a broken station.
 
 The interesting output is on stdout. In Development the feed logs one frame per second:
 
@@ -86,8 +108,9 @@ src/Mcs.Api         ASP.NET Core host; the fake feed lives here for now
 src/Mcs.Adapters    vehicle adapters (empty)
 src/Mcs.Simulator   vehicle simulator (stub)
 web/                React + TypeScript + Vite scaffold
-tests/              unit tests for the core and the feed; integration (Testcontainers)
-                    and system (compose smoke) projects exist but are empty
+tests/              unit tests for the core and the feed; integration tests against a real
+                    Postgres via Testcontainers; system (compose smoke) project is empty
+deploy/migrations/  numbered .sql files, applied by the API on startup
 deploy/compose/     deployment (empty)
 docs/notes/         engineering notes, including what got stuck and why
 ```
@@ -98,7 +121,7 @@ makes that claim indefensible.
 
 ---
 
-## Three decisions worth knowing about
+## Four decisions worth knowing about
 
 **A vehicle's claims and the station's observations are different types.**
 `VehicleTelemetry` holds only what a vehicle reported; `TelemetryFrame` pairs one with
@@ -118,6 +141,16 @@ when it isn't. That's why the store rejects a thirteenth vehicle loudly instead 
 it, why a full subscriber queue drops its *oldest* frames rather than its newest, and why
 values are rejected rather than clamped — a clamped 200% battery renders as a believable
 100%, and the operator never learns the adapter is broken.
+
+**A migration is immutable once it has shipped, and the database enforces it.** Schema
+changes are numbered `.sql` files compiled into the API and applied on startup, inside a
+transaction, under a Postgres advisory lock so two instances starting together cannot both
+apply the same one. Each is recorded with a checksum, and a checksum that no longer matches
+stops the station rather than being logged and stepped over — a schema that has quietly
+drifted from the code is the same problem as a console showing a position that is no longer
+true. `/health/db` reads the applied version back out and compares it with the version the
+running build was compiled against, so "is this the database this build expects" is a
+question with an answer rather than an assumption.
 
 ---
 

@@ -13,4 +13,21 @@
     <ProjectReference Include="..\Mcs.Adapters\Mcs.Adapters.csproj" />
   </ItemGroup>
 
+  <!--
+    Migrations are compiled into the assembly rather than copied beside it. A migration belongs to
+    the build that ships it, so it should not be separately deletable, mountable over, or missing
+    from an image because a COPY line was forgotten, and the symptom of any of those is an API
+    that starts happily against a database it has not migrated. The glob means a new .sql file is
+    picked up by adding it, with no second place to remember.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\deploy\migrations\*.sql" LinkBase="Migrations" />
+  </ItemGroup>
+
+  <!-- Migration loading is an implementation detail with rules worth testing directly. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mcs.Api.Tests" />
+    <InternalsVisibleTo Include="Mcs.Integration.Tests" />
+  </ItemGroup>
+
 </Project>
