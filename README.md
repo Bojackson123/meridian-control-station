@@ -11,8 +11,8 @@ exactly what runs today, and nothing here describes anything that doesn't.
 ## What runs today
 
 A hardcoded telemetry feed flying a vehicle around a closed circuit at 1 Hz, into a bounded
-in-memory store that the API layer will read from, and a Postgres database the station
-migrates on startup and reports the state of over HTTP.
+in-memory store, served over HTTP as a snapshot and a live event stream — and a Postgres
+database the station migrates on startup and reports the state of over HTTP.
 
 | | |
 | --- | --- |
@@ -21,7 +21,7 @@ migrates on startup and reports the state of over HTTP.
 | Fake vehicle feed | working, tested |
 | Structured JSON logging | working |
 | Postgres — schema migration on startup, `/health` and `/health/db` | working, tested |
-| Telemetry HTTP API | not yet — the endpoints are the two health checks and the OpenAPI document |
+| Telemetry HTTP API — `/api/vehicles` and an SSE `/api/telemetry/stream` | working, tested |
 | Map console | not yet — `web/` is an empty Vite scaffold |
 | Docker Compose | not yet |
 | MAVLink, mission planning, deconfliction, auth | not yet |
@@ -54,10 +54,32 @@ The app listens on `http://localhost:5271`:
 ```bash
 curl -s localhost:5271/health      # {"status":"Healthy"}
 curl -s localhost:5271/health/db   # {"status":"Healthy","expectedSchemaVersion":1,"schemaVersion":1}
+
+curl -s localhost:5271/api/vehicles | jq     # latest frame per vehicle; [] before the first tick
+curl -N localhost:5271/api/telemetry/stream  # the same frames, live, as they arrive
 ```
 
-`/openapi/v1.json` serves the OpenAPI document in Development; every other path is a 404
-until the telemetry API lands.
+`-N` disables curl's own buffering. Without it the stream looks dead, and the endpoint gets
+blamed for it.
+
+```
+event: telemetry
+data: {"vehicleId":"UAV-01","latitudeDegrees":34.7333065,"longitudeDegrees":-86.5835293,
+       "altitude":{"meters":300,"reference":"Msl"},"groundSpeedMetersPerSecond":20.9439510,
+       "headingDegrees":126.0114069,"batteryPercent":99.5554147,"linkStatus":"Healthy",
+       "receivedAtUtc":"2026-08-09T22:54:29.3154398+00:00"}
+```
+
+Wrapped here to fit the page — on the wire each `data:` is a single line, because a raw
+newline inside one would break SSE framing. After fifteen seconds of silence the stream sends
+an `event: heartbeat` instead, so an idle connection is not dropped by a proxy that thinks it
+has gone away.
+
+Two things the payload is careful about: the altitude carries the reference it was measured
+against, never a bare number, and `receivedAtUtc` is the station's own observation of when the
+frame arrived — not a time the vehicle claimed. Staleness is derived from it.
+
+`/openapi/v1.json` serves the OpenAPI document in Development.
 
 **Without a database the station does not start.** It retries for thirty seconds, then logs
 why and exits non-zero. An API that came up anyway would be reporting itself healthy while

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Mcs.Integration.Tests;
 
@@ -15,8 +17,29 @@ namespace Mcs.Integration.Tests;
 internal sealed class StationApplication : WebApplicationFactory<Program>
 {
     private readonly string _connectionString;
+    private readonly IReadOnlyDictionary<string, string?> _settings;
+    private readonly Action<IServiceCollection>? _configureServices;
 
-    public StationApplication(string connectionString) => _connectionString = connectionString;
+    /// <param name="connectionString">The database this instance migrates and reads.</param>
+    /// <param name="settings">
+    /// Configuration entries layered over the defaults below. The telemetry tests raise the feed
+    /// rate this way, because the default here is chosen to keep the feed out of the log rather
+    /// than to make frames arrive.
+    /// </param>
+    /// <param name="configureServices">
+    /// Applied after the application has registered its own services, so a registration here wins.
+    /// For observing the station, not for rebuilding it -- a test that replaces a component is
+    /// testing something other than what a deployment runs.
+    /// </param>
+    public StationApplication(
+        string connectionString,
+        IReadOnlyDictionary<string, string?>? settings = null,
+        Action<IServiceCollection>? configureServices = null)
+    {
+        _connectionString = connectionString;
+        _settings = settings ?? new Dictionary<string, string?>(StringComparer.Ordinal);
+        _configureServices = configureServices;
+    }
 
     /// <inheritdoc />
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -25,15 +48,27 @@ internal sealed class StationApplication : WebApplicationFactory<Program>
         //  and its localhost connection string would quietly win over the container's if it were.
         builder.UseEnvironment("Testing");
 
-        builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(
-            new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:Mcs"] = _connectionString,
+        Dictionary<string, string?> configuration = new(StringComparer.Ordinal)
+        {
+            ["ConnectionStrings:Mcs"] = _connectionString,
 
-                //  One vehicle at the slowest rate the feed allows. The fake feed is not what these
-                //  tests are about, and it writes a log line per frame per vehicle.
-                ["FakeFeed:VehicleCount"] = "1",
-                ["FakeFeed:RateHz"] = "0.1",
-            }));
+            //  One vehicle at the slowest rate the feed allows. The fake feed is not what most of
+            //  these tests are about, and it writes a log line per frame per vehicle.
+            ["FakeFeed:VehicleCount"] = "1",
+            ["FakeFeed:RateHz"] = "0.1",
+        };
+
+        foreach (KeyValuePair<string, string?> setting in _settings)
+        {
+            configuration[setting.Key] = setting.Value;
+        }
+
+        builder.ConfigureAppConfiguration(
+            builderConfiguration => builderConfiguration.AddInMemoryCollection(configuration));
+
+        if (_configureServices is not null)
+        {
+            builder.ConfigureTestServices(_configureServices);
+        }
     }
 }

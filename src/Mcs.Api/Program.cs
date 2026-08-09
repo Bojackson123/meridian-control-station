@@ -1,6 +1,9 @@
+using System.Text.Json.Serialization;
+
 using Mcs.Api.FakeFeed;
 using Mcs.Api.Observability;
 using Mcs.Api.Persistence;
+using Mcs.Api.Telemetry;
 using Mcs.Core;
 using Npgsql;
 using Serilog;
@@ -19,9 +22,9 @@ try
     var builder = WebApplication.CreateBuilder(args);
 
     // Stage two: levels and sinks come from the Serilog section of appsettings, so
-    // Serilog__MinimumLevel__Default can turn logging up on a running container (ticket 11) without
-    // a rebuild. FromLogContext stays in code -- CorrelationIdMiddleware depends on it, so it is not
-    // an operator knob to be switched off.
+    // Serilog__MinimumLevel__Default can turn logging up on a running container without a rebuild.
+    // FromLogContext stays in code -- CorrelationIdMiddleware depends on it, so it is not an
+    // operator knob to be switched off.
     builder.Host.UseSerilog((context, services, logger) => logger
         .ReadFrom.Configuration(context.Configuration)
         .ReadFrom.Services(services)
@@ -36,6 +39,13 @@ try
 
     builder.Services.AddSingleton<ITelemetryStore, InMemoryTelemetryStore>();
     builder.Services.AddSingleton<TelemetryIngest>();
+
+    // Enums go on the wire as names. Configured once here rather than per property, because the
+    // failure mode of a forgotten attribute is a renumbered enum silently changing what "2" means
+    // to a console that was written against the old numbering. LinkStatus and AltitudeReference
+    // both ask for this in their own documentation.
+    builder.Services.ConfigureHttpJsonOptions(options =>
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
     // ValidateOnStart, so a bad FakeFeed section stops the host with the offending setting named.
     builder.Services
@@ -112,10 +122,10 @@ try
                     // the log by volume, and a log nobody scrolls through is a log nobody reads. A
                     // failing probe still surfaces: the 503 takes the Error branch above.
                     ? LogEventLevel.Debug
-                    : httpContext.Request.Path.StartsWithSegments("/api/telemetry/stream")
-                    // The SSE stream (ticket 07) is a long-lived connection, so its completed line
-                    // lands minutes late with an alarming elapsed time. Debug rather than filtered
-                    // out: still there when a dropped stream is what you are chasing.
+                    : httpContext.Request.Path.StartsWithSegments(TelemetryEndpoints.StreamPath)
+                    // The SSE stream is a long-lived connection, so its completed line lands
+                    // minutes late with an alarming elapsed time. Debug rather than filtered out:
+                    // still there when a dropped stream is what you are chasing.
                     ? LogEventLevel.Debug
                     : LogEventLevel.Information;
 
@@ -135,6 +145,7 @@ try
     // app.UseHttpsRedirection();
 
     app.MapStationHealthChecks();
+    app.MapTelemetryEndpoints();
 
     app.Run();
 

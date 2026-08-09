@@ -6,14 +6,14 @@ namespace Mcs.Api.Observability;
 /// Puts an inbound correlation ID onto every log line written while a request is being handled.
 /// </summary>
 /// <remarks>
-/// Half of the correlation ID (plan §2.3). The other half -- minting one when an operator issues a
-/// command, then threading it through adapter, wire and simulator ack -- arrives with the command
-/// lifecycle in M2. Until then nothing here generates an ID: telemetry is not commanded, so stamping
-/// frames with one would leave a request ID wearing the name of something more useful.
+/// Half of the correlation ID. The other half -- minting one when an operator issues a command, then
+/// threading it through adapter, wire and simulator ack -- arrives with the command lifecycle. Until
+/// then nothing here generates an ID: telemetry is not commanded, so stamping frames with one would
+/// leave a request ID wearing the name of something more useful.
 /// </remarks>
 public sealed class CorrelationIdMiddleware
 {
-    /// <summary>Header carrying the ID inbound. M2's command path must send the same one.</summary>
+    /// <summary>Header carrying the ID inbound. The command path must send the same one.</summary>
     public const string HeaderName = "X-Correlation-Id";
 
     /// <summary>Log property the ID appears under.</summary>
