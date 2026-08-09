@@ -1,1 +1,6 @@
 *.sh text eol=lf
+
+# Compose parses .env itself rather than handing it to a shell, and a CRLF line ending becomes a
+# carriage return on the end of every value. The generated .env is never in git, but the example is
+# the file people copy from, so it checks out with the endings its consumer expects.
+.env.example text eol=lf
