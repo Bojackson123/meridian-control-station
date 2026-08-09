@@ -38,17 +38,16 @@ public sealed class SchemaVersionHealthCheck : IHealthCheck
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly SchemaMigrator _migrator;
-    private readonly ILogger<SchemaVersionHealthCheck> _logger;
 
     /// <summary>Creates the check.</summary>
-    public SchemaVersionHealthCheck(
-        NpgsqlDataSource dataSource,
-        SchemaMigrator migrator,
-        ILogger<SchemaVersionHealthCheck> logger)
+    /// <remarks>
+    /// No logger: everything worth recording about a health check is recorded by the framework
+    /// running it. See the catch in <see cref="CheckHealthAsync"/>.
+    /// </remarks>
+    public SchemaVersionHealthCheck(NpgsqlDataSource dataSource, SchemaMigrator migrator)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _migrator = migrator ?? throw new ArgumentNullException(nameof(migrator));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <inheritdoc />
@@ -88,12 +87,14 @@ public sealed class SchemaVersionHealthCheck : IHealthCheck
         }
         catch (Exception exception) when (exception is NpgsqlException or TimeoutException)
         {
-            //  The exception goes to the log, never to the response body: an unreachable database
-            //  reports connection strings, host names and sometimes usernames in its message, and
-            //  /health/db is the one endpoint guaranteed to be reachable by anything that can see
-            //  the port.
-            _logger.LogError(exception, "Readiness check could not read the schema version.");
-
+            //  Handed to the framework rather than logged here. It writes the failure at Error with
+            //  the exception attached, alongside the check's name and duration -- so logging it here
+            //  as well put two copies of the same Npgsql stack trace in the log for every probe,
+            //  and the copy this class wrote was the one carrying less.
+            //
+            //  It reaches the log and not the response body either way, which is the part that
+            //  matters: an unreachable database names hosts, ports and sometimes usernames in its
+            //  message, and /health/db is reachable by anything that can see the port.
             return HealthCheckResult.Unhealthy(
                 "The schema version could not be read.",
                 exception,
