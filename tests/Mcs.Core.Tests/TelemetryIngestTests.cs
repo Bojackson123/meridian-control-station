@@ -291,6 +291,60 @@ public class TelemetryIngestTests
         Assert.Equal(racers - 1, rejected);
     }
 
+    [Fact]
+    public void Complete_LeavesNoWindow_WhereTheReceiptIsCompleteButItsDelayIsNull()
+    {
+        // Claiming the receipt and recording the delay are one interlocked write on one field,
+        // which is what closes this. Held as two -- flag flipped first, delay written after --
+        // there was an instant between them where a thread observing completion any way other
+        // than by holding the returned frame saw a completed receipt reporting no decode cost at
+        // all. The losers below observe it in exactly that way: being told they lost is the
+        // observation, so the delay has to be readable by then. A latency alarm reading a receipt
+        // off a continuation is the real shape of this, and a null there logs as healthy.
+        const int racers = 32;
+        FakeClock clock = new();
+        TelemetryReceipt receipt = new TelemetryIngest(clock).BeginReceive();
+        VehicleTelemetry telemetry = TelemetrySamples.Telemetry();
+
+        clock.Advance(DecodeCost);
+
+        using ManualResetEventSlim gate = new(initialState: false);
+        int unreadableAfterCompletion = 0;
+        Thread[] threads = new Thread[racers];
+
+        for (int i = 0; i < racers; i++)
+        {
+            threads[i] = new Thread(() =>
+            {
+                gate.Wait();
+                try
+                {
+                    receipt.Complete(telemetry);
+                }
+                catch (InvalidOperationException)
+                {
+                    // The receipt is provably complete at this point -- that is what the rejection
+                    // means -- so the delay that belongs with it must already be there.
+                    if (receipt.IngestDelay is null)
+                    {
+                        Interlocked.Increment(ref unreadableAfterCompletion);
+                    }
+                }
+            });
+
+            threads[i].Start();
+        }
+
+        gate.Set();
+        foreach (Thread thread in threads)
+        {
+            thread.Join();
+        }
+
+        Assert.Equal(0, unreadableAfterCompletion);
+        Assert.Equal(DecodeCost, receipt.IngestDelay!.Value);
+    }
+
     // --- IngestDelay: the lateness no type can prevent, measured -------------------------------
 
     [Fact]

@@ -97,21 +97,24 @@ public sealed class TelemetryIngest(TimeProvider timeProvider)
 /// and follows it through decode to <see cref="Complete"/>; that is the only sequence it is for.
 /// Share the <see cref="TelemetryIngest"/> between threads, never a receipt.
 /// <para>
-/// Two members hold anyway, under misuse, because what they protect is a safety property rather
-/// than a convenience. The single-use flag is interlocked, so a raced receipt still stamps exactly
-/// one frame. And <see cref="IngestDelay"/> is published with a volatile write of a single
-/// <c>long</c> rather than left as a plain <c>TimeSpan?</c>, so a pipeline that reads it from a
-/// logging continuation gets the decode cost or nothing -- never a torn pair claiming a slow
-/// decode was instant. Neither makes the type shareable; they only ensure that
-/// misusing it fails loudly rather than quietly understating a latency.
+/// One member holds anyway, under misuse, because what it protects is a safety property rather
+/// than a convenience: <see cref="Complete"/> claims the receipt and records
+/// <see cref="IngestDelay"/> in a single interlocked operation on one <c>long</c>. A raced receipt
+/// still stamps exactly one frame, and a reader taking the delay off a logging continuation gets
+/// the decode cost or nothing -- never a torn pair claiming a slow decode was instant, never a
+/// completed receipt whose delay still reads <see langword="null"/>. That does not make the type
+/// shareable; it only makes misuse fail loudly rather than quietly understate a latency.
 /// </para>
 /// </para>
 /// </remarks>
 public sealed class TelemetryReceipt
 {
     /// <summary>
-    /// The <see cref="_ingestDelayTicks"/> value meaning "no delay recorded yet". Unambiguous
-    /// because <see cref="Elapsed"/> is measured monotonically and cannot come back negative.
+    /// The <see cref="_ingestDelayTicks"/> value meaning "not completed, no delay recorded".
+    /// Unambiguous because <see cref="Elapsed"/> is monotonic and cannot come back negative, which
+    /// is what lets one field carry both facts. It is also the comparand
+    /// <see cref="Complete"/> tests against, so the receipt is claimed by exactly the thread that
+    /// finds it unset.
     /// </summary>
     private const long NotYetCompleted = -1;
 
@@ -121,15 +124,16 @@ public sealed class TelemetryReceipt
     // Not exposed: a raw tick count means nothing outside the provider that issued it.
     private readonly long _receivedTimestamp;
 
-    // int rather than bool so Interlocked.Exchange can do the test-and-set in one step: two
-    // threads racing on a bool could both read false before either wrote true.
-    private int _completed;
-
-    // The decode cost in ticks, or NotYetCompleted. A long rather than the TimeSpan? the property
-    // exposes, for the same reason _completed is an int: TimeSpan? is a flag plus a long, which
-    // is neither written atomically nor ordered against the interlocked exchange above it, so a
-    // reader could see the flag without the ticks that belong with it -- a 50 ms decode logged as
-    // 0 ms. An aligned long is written atomically, and the Volatile pair gives it the ordering.
+    // The decode cost in ticks, or NotYetCompleted -- and the single-use flag as well, because
+    // those are one fact and not two. A long rather than the TimeSpan? the property exposes:
+    // TimeSpan? is a flag plus a long, two stores a reader can see half of, which is a 50 ms
+    // decode logged as 0 ms. An aligned long is written atomically.
+    //
+    // One field so that "complete" and "here is the delay" cannot be observed apart. A separate
+    // interlocked int flipped *before* this was written left exactly that window: a reader
+    // observing completion any way other than by holding the returned frame could see a completed
+    // receipt whose IngestDelay was still null. Interlocked.CompareExchange here is now the
+    // test-and-set and the publication in one operation.
     private long _ingestDelayTicks = NotYetCompleted;
 
     /// <summary>
@@ -182,11 +186,13 @@ public sealed class TelemetryReceipt
     /// in the ingest pipeline, where a logger is available. Frozen at completion, unlike
     /// <see cref="Elapsed"/>, so it still reports the decode cost when read later.
     /// <para>
-    /// Published safely even though the type is single-threaded by contract, on the same grounds
-    /// as the interlocked completion flag: this is the number that gates the latency alarm, and
-    /// the failure it would otherwise allow -- a null read, or a torn pair reporting a slow decode
-    /// as instant -- is silent and looks exactly like a healthy pipeline. The pipeline that logs
-    /// this is precisely the code most likely to be handed the receipt on a continuation.
+    /// Published safely even though the type is single-threaded by contract, because this gates
+    /// the latency alarm and every way of getting it wrong is silent: a torn pair reporting a slow
+    /// decode as instant, or a null read from a receipt that has in fact completed. Both look like
+    /// a healthy pipeline. <see cref="Complete"/> therefore does not flip a flag and then write
+    /// this -- it stores the delay <i>as</i> the claim, one interlocked write to one field, so
+    /// there is no window between the two. The code that logs this is exactly the code most likely
+    /// to be handed the receipt on a continuation.
     /// </para>
     /// </remarks>
     public TimeSpan? IngestDelay
@@ -210,16 +216,23 @@ public sealed class TelemetryReceipt
     {
         ArgumentNullException.ThrowIfNull(telemetry);
 
-        if (Interlocked.Exchange(ref _completed, 1) != 0)
+        // Measured before the frame is built, so the number reports decode cost rather than
+        // decode cost plus construction. Reading the clock ahead of the guard costs a rejected
+        // second call one timestamp and mutates nothing -- the CompareExchange below leaves the
+        // field as it found it when it loses.
+        long ingestDelayTicks = Elapsed.Ticks;
+
+        // Claiming the receipt and recording the delay are one operation, so there is no ordering
+        // between them to get wrong and no instant at which this receipt is complete but its
+        // delay unreadable. Elapsed is monotonic and cannot produce the negative sentinel, so the
+        // comparand is unambiguous.
+        if (Interlocked.CompareExchange(ref _ingestDelayTicks, ingestDelayTicks, NotYetCompleted)
+            != NotYetCompleted)
         {
             throw new InvalidOperationException(
                 "This receipt has already stamped a frame. One arrival stamps exactly one frame "
                 + "(MCS-005); call BeginReceive again for the next message.");
         }
-
-        // Measured before the frame is built, so the number reports decode cost rather than
-        // decode cost plus however long construction happened to take.
-        Volatile.Write(ref _ingestDelayTicks, Elapsed.Ticks);
 
         return TelemetryFrame.Create(telemetry, ReceivedAtUtc);
     }

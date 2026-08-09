@@ -20,12 +20,18 @@ namespace Mcs.Core.Tests;
 /// </remarks>
 public class TelemetryFrameTests
 {
-    /// <summary>The one supported way to obtain a frame, used by every case here.</summary>
+    /// <summary>
+    /// The one supported way to obtain a frame, used by every case here.
+    /// </summary>
+    /// <remarks>
+    /// Delegates to <see cref="TelemetrySamples.Frame"/> rather than repeating the ingest dance,
+    /// so the store tests and these share a single route to a frame. The signature stays
+    /// arrival-shaped because that is what these cases vary; a fresh clock per call is right here
+    /// and wrong for a store test, which is why the shared helper takes the clock instead.
+    /// </remarks>
     private static TelemetryFrame Frame(
         VehicleTelemetry? telemetry = null, DateTimeOffset? arrival = null) =>
-        new TelemetryIngest(new FakeClock(arrival ?? FakeClock.Arrival))
-            .BeginReceive()
-            .Complete(telemetry ?? TelemetrySamples.Telemetry());
+        TelemetrySamples.Frame(new FakeClock(arrival ?? FakeClock.Arrival), telemetry);
 
     // --- What a frame carries -------------------------------------------------------------------
 
@@ -84,19 +90,47 @@ public class TelemetryFrameTests
         // than on this type alone: outside Mcs.Core there is no expression that produces a frame
         // without first having recorded an arrival. A convenience factory added anywhere in the
         // assembly fails here.
-        MethodInfo[] producers = [.. typeof(TelemetryFrame).Assembly.GetExportedTypes()
+        MethodInfo[] producers = [.. FrameReturningMembers()
+            // Retrieval is not production. ITelemetryStore.GetLatest hands back a frame the store
+            // was given; it cannot mint one, because Create is internal and it holds no receipt.
+            // The exclusion is narrow on purpose -- see the companion case below, which nets the
+            // shape a smuggled factory would have to take and allowlists nothing.
+            .Where(m => !typeof(ITelemetryStore).IsAssignableFrom(m.DeclaringType))];
+
+        MethodInfo only = Assert.Single(producers);
+        Assert.Equal(nameof(TelemetryReceipt.Complete), only.Name);
+        Assert.Equal(typeof(TelemetryReceipt), only.DeclaringType);
+    }
+
+    [Fact]
+    public void Assembly_ExposesExactlyOnePublicMemberThatTurnsATelemetryIntoAFrame()
+    {
+        // The same claim with no exclusions, narrowed by shape instead: a public member that
+        // accepts a VehicleTelemetry and returns a TelemetryFrame is, by definition, stamping an
+        // arrival time onto a report. Exactly one may exist, and it is the one that took the
+        // clock reading before the decode. This is the net that still holds if someone adds a
+        // frame-returning member to the store contract and the exclusion above swallows it.
+        MethodInfo[] stampers = [.. FrameReturningMembers()
+            .Where(m => Array.Exists(
+                m.GetParameters(), p => p.ParameterType == typeof(VehicleTelemetry)))];
+
+        MethodInfo only = Assert.Single(stampers);
+        Assert.Equal(nameof(TelemetryReceipt.Complete), only.Name);
+        Assert.Equal(typeof(TelemetryReceipt), only.DeclaringType);
+    }
+
+    /// <summary>
+    /// Every public member of <c>Mcs.Core</c> that hands out a <see cref="TelemetryFrame"/>.
+    /// </summary>
+    private static IEnumerable<MethodInfo> FrameReturningMembers() =>
+        typeof(TelemetryFrame).Assembly.GetExportedTypes()
             .SelectMany(t => t.GetMethods(
                 BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
                 | BindingFlags.DeclaredOnly))
             .Where(m => m.ReturnType == typeof(TelemetryFrame))
             // The record's synthesized clone method. Unspeakable in C# source, and reachable only
             // through a `with` expression -- which cannot change anything on a get-only record.
-            .Where(m => !m.Name.StartsWith('<'))];
-
-        MethodInfo only = Assert.Single(producers);
-        Assert.Equal(nameof(TelemetryReceipt.Complete), only.Name);
-        Assert.Equal(typeof(TelemetryReceipt), only.DeclaringType);
-    }
+            .Where(m => !m.Name.StartsWith('<'));
 
     [Fact]
     public void Type_ExposesNoPublicSetters()
