@@ -12,9 +12,9 @@ exactly what runs today, and nothing here describes anything that doesn't.
 
 A hardcoded telemetry feed flying a vehicle around a closed circuit at 1 Hz, into a bounded
 in-memory store, served over HTTP as a snapshot and a live event stream — and a Postgres
-database the station migrates on startup and reports the state of over HTTP. The console is
-a map and a scale bar: the basemap is real and runs with the network off, and nothing is
-plotted on it yet.
+database the station migrates on startup and reports the state of over HTTP. The console
+draws that feed: an offline basemap that runs with the network off, with the fleet on it,
+each vehicle a marker pointed along the heading it reported.
 
 | | |
 | --- | --- |
@@ -25,7 +25,8 @@ plotted on it yet.
 | Postgres — schema migration on startup, `/health` and `/health/db` | working, tested |
 | Telemetry HTTP API — `/api/vehicles` and an SSE `/api/telemetry/stream` | working, tested |
 | Offline basemap — dark MapLibre style, zoom-adaptive graticule, no third-party requests | working |
-| Map console | not yet — the map renders, but nothing is on it |
+| Map console — the fleet on the basemap, each marker oriented by heading | working |
+| Console state language — live / stale / lost, alerts | not yet — a dead feed shows only in the browser console |
 | Docker Compose | not yet |
 | MAVLink, mission planning, deconfliction, auth | not yet |
 
@@ -118,8 +119,23 @@ apart against a reported 20.94 m/s, and the heading advances 3°/s — one 360°
 cd web && npm install && npm run dev
 ```
 
-A dark map centred on the feed's circuit, a scale bar, and a graticule that changes spacing
-with the zoom. Nothing is plotted on it yet — the vehicle comes next.
+A dark map centred on the feed's circuit, a scale bar, a graticule that changes spacing with
+the zoom — and the fleet on top of it, one marker per vehicle, rotated to the heading in its
+latest frame. **Start the API first:** the dev server proxies `/api` to it on port 5271, and
+with nothing behind that proxy the basemap draws but stays empty. Set
+`FakeFeed__VehicleCount=12` and you get twelve markers spaced around the circuit.
+
+The marker steps once a second rather than gliding, and that is the interesting part. Smooth
+motion means interpolating between frames, which puts the vehicle at a position it never
+reported — a nicer-looking console that is lying about where something is. At 1 Hz you are
+watching the station show you exactly what it was told, and nothing else.
+
+What the console does *not* do yet: nothing on screen distinguishes a vehicle reporting now
+from one that stopped ten minutes ago. Stop the API and the markers stay exactly where they
+were, with only the browser console saying so. The client notices — it treats silence on the
+stream as a fault and reopens the connection, so the map recovers on its own when the API
+comes back — but saying it on screen needs the visual language designed first, and that is
+the next piece of console work.
 
 The basemap is bundled, not fetched: the MapLibre style and everything it references are
 served from `web/public`, there is no tile CDN and no API key, and the page carries a
