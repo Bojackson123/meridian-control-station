@@ -155,3 +155,71 @@ both into one pair of indices had quietly conflated them.
 the ladder bound and the coverage property were found that way in seconds after a morning of
 squinting at JPEGs. `web/` still has no test framework; when it gets one, `chooseSpacingDegrees`
 and `gridFor` are already written to be called directly and should be the first things in it.
+
+---
+
+## 2026-08-09 — a stream that starves the map, and one that lies about being alive
+
+**Symptom.** Three faults stacked on one another while putting the vehicle on the map, and the
+first two look identical from a screenshot.
+
+1. With the telemetry client wired in, the console rendered the background and *nothing else*
+   — no graticule, no vehicle — and stayed that way. Not slow: 45 seconds in, `isStyleLoaded()`
+   was still false and `map.on('load')` had never fired, so neither data layer had been
+   attached. Exactly the picture the previous entry's worker bug produced, which cost me a
+   while: I had a ready-made explanation and it was the wrong one.
+2. Stopping the API left the marker frozen where it was, no console error at all, and
+   restarting the API did not bring it back. A reload did.
+3. Loading the page against an API that was already down was a permanent failure, not a
+   delayed one — nothing ever appeared, even minutes after the API came back.
+
+**What I tried.**
+
+1. Chased the pending worker request again, since the symptom matched. It was a red herring
+   twice over: the extension's network panel reports worker-context requests as `pending`
+   whether or not they completed, and a plain `fetch()` of the same URL returned 131 KB in
+   22 ms. The dev server was never the problem.
+2. Assumed my code had thrown inside the `load` handler and swallowed it in a promise. It had
+   not — no error anywhere, and the handler simply had not been called.
+3. Stashed the whole change and reloaded. **This is what ended it.** The pre-change code
+   rendered the graticule in about six seconds on the same dev server, same page, back to
+   back. That converted "a flaky dev environment" into "my change does this", which is the
+   only useful form of the question.
+4. Then read the connection ordering rather than the code: the client opened the `EventSource`
+   in the effect body, *before* the map had loaded.
+
+**What it was.**
+
+The stream was starving the map. MapLibre fetches its worker script at low priority, and an
+SSE response is one that never completes, so the browser's scheduler left the worker request
+queued behind it indefinitely. No worker means no GeoJSON source ever finishes loading, which
+means `load` never fires, which means neither layer is ever attached. Opening the connection
+inside the `load` handler instead fixes it outright, and is now commented in `App.tsx` as a
+constraint rather than a preference — the parallelism I was buying was worth a few hundred
+milliseconds and cost the entire basemap.
+
+The frozen marker was a different lie. Two of them, in fact, and `EventSource` only recovers
+from the third:
+
+- an established connection that *drops* is retried by the browser, on its own schedule, and
+  needs no help;
+- a connection *attempt* answered with an HTTP status — which is what any proxy in front of a
+  stopped API produces — makes the spec fail the connection permanently. Measured:
+  `readyState` 2, one error event, no further attempts, ever. This is not an edge case, it is
+  what a restarting station looks like from the browser;
+- a connection the proxy holds open after the upstream has died produces *no event at all*.
+  The dev server did this for 33 seconds without a murmur, and would have done it forever.
+
+The last one is the dangerous one, because it is precisely HAZ-01: an operator watching a
+console that is confidently displaying a position from several minutes ago. It is also the
+one the station already had the mechanism for and the console was ignoring — the 15-second
+heartbeat exists so the stream is never idle, which makes silence *itself* the fault signal.
+The client now treats 40 seconds without any event, heartbeat included, as a dead stream and
+reopens it. All three cases are commented where they are handled.
+
+**Carry forward.** Every reopen re-fetches the snapshot as well as resubscribing, so the
+fleet is corrected in one request rather than converging vehicle by vehicle as each reports.
+And the console still shows the last known positions during an outage with nothing on screen
+to say so — the browser console is the only place a disconnect is visible today. That is
+MCS-002's job and needs the state language designed before it can be built, but it is the
+gap I would close first.

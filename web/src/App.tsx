@@ -7,13 +7,19 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 
 import { attachGraticule } from './basemap/graticule'
 import { configureMapLibreWorker } from './basemap/worker'
+import { connectTelemetry } from './telemetry/client'
+import { attachVehicleLayer } from './vehicles/layer'
 import './App.css'
 
 /**
- * The console's map shell: a full-bleed MapLibre map on a basemap served entirely from this origin.
+ * The console's map shell: a full-bleed MapLibre map, showing the fleet on a basemap served entirely
+ * from this origin.
  *
- * There is nothing else on the page yet, and the emptiness is the point -- vehicles, state and
- * chrome arrive on top of a basemap that has already been proved to make no third-party requests.
+ * The map is the whole page, and that is a decision rather than a stage of construction. State
+ * language, vehicle lists and alert surfacing are a designed set that has to be designed once and
+ * used everywhere, so the page holds a marker and nothing else until that design exists -- anything
+ * added here in the meantime would be built twice, and the second time would have to argue with the
+ * first.
  */
 function App() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -42,9 +48,30 @@ function App() {
     //  the graticule are the only distance references an operator has.
     map.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left')
 
-    map.on('load', () => attachGraticule(map))
+    //  Torn down before the map has loaded, this effect still has to undo a connection that the load
+    //  handler may be about to open.
+    let disconnect: (() => void) | null = null
+    let cancelled = false
+
+    map.on('load', () => {
+      attachGraticule(map)
+      const setFleet = attachVehicleLayer(map)
+
+      if (cancelled) return
+
+      //  **The connection waits for the map.** Opening it alongside the map instead -- so the
+      //  snapshot and the style parse in parallel -- costs the basemap entirely: MapLibre loads its
+      //  worker from a script request the browser schedules at low priority, and an SSE stream is a
+      //  response that never completes, so the scheduler leaves that request queued behind it. The
+      //  symptom is not subtle and is not obviously about connections: the background paints, no data
+      //  layer ever appears, and `load` never fires, indefinitely. Measured on this basemap at
+      //  45 seconds and still waiting, against six with the connection opened here.
+      disconnect = connectTelemetry(setFleet)
+    })
 
     return () => {
+      cancelled = true
+      disconnect?.()
       map.remove()
       mapRef.current = null
     }
