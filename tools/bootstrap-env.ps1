@@ -73,4 +73,7 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($envPath, ($content -replace "`r`n", "`n") + "`n", $utf8NoBom)
 
 Write-Host "Wrote $envPath with a generated POSTGRES_PASSWORD."
-Write-Host 'Next: docker compose -f deploy/compose/compose.yaml up --build'
+#  --env-file, and from the repo root. Compose looks for .env beside the compose file, not here,
+#  and without the flag every ${...} in it substitutes to an empty string.
+Write-Host 'Next, from the repo root:'
+Write-Host '  docker compose --env-file .env -f deploy/compose/compose.yaml up --build'

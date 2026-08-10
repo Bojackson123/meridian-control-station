@@ -73,4 +73,7 @@ MCS_WEB_PORT=8080
 EOF
 
 echo "Wrote $env_path with a generated POSTGRES_PASSWORD."
-echo "Next: docker compose -f deploy/compose/compose.yaml up --build"
+# --env-file, and from the repo root. Compose looks for .env beside the compose file, not here, and
+# without the flag every ${...} in it substitutes to an empty string.
+echo "Next, from the repo root:"
+echo "  docker compose --env-file .env -f deploy/compose/compose.yaml up --build"

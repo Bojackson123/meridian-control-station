@@ -27,10 +27,24 @@ each vehicle a marker pointed along the heading it reported.
 | Offline basemap — dark MapLibre style, zoom-adaptive graticule, no third-party requests | working |
 | Map console — the fleet on the basemap, each marker oriented by heading | working |
 | Console state language — live / stale / lost, alerts | not yet — a dead feed shows only in the browser console |
-| Docker Compose | not yet |
+| Docker Compose — database, API and console, one command, offline | working |
 | MAVLink, mission planning, deconfliction, auth | not yet |
 
-There is no `docker compose up` yet. When there is, it will be in this README.
+From a clean clone, with nothing installed but Docker:
+
+```bash
+./tools/bootstrap-env.sh    # tools\bootstrap-env.ps1 on Windows — writes .env with a generated password
+docker compose --env-file .env -f deploy/compose/compose.yaml up --build
+```
+
+Then open `http://localhost:8080`. The API is on `http://localhost:8081` for `curl`; the
+console reaches it through the web container's `/api` proxy instead, so the browser only ever
+talks to one origin.
+
+`--env-file` is not optional and not decoration. Compose looks for `.env` beside the compose
+file, and the bootstrap scripts write it to the repo root — pointing at it explicitly is the
+smaller of the two costs. Omit it and the stack refuses to start, naming the first variable
+it could not resolve.
 
 ---
 
@@ -181,7 +195,7 @@ web/                React + TypeScript + Vite console; the basemap is served fro
 tests/              unit tests for the core and the feed; integration tests against a real
                     Postgres via Testcontainers; system (compose smoke) project is empty
 deploy/migrations/  numbered .sql files, applied by the API on startup
-deploy/compose/     deployment (empty)
+deploy/compose/     compose.yaml — the whole stack, database and API and console
 docs/notes/         engineering notes, including what got stuck and why
 ```
 

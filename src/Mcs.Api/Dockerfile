@@ -53,6 +53,16 @@ EXPOSE 8080
 #  this. Program.cs leaves UseHttpsRedirection out for the same reason -- with it in, every
 #  proxied request 307s to an https port nothing is listening on.
 
+#  This base image ships no HTTP client at all -- no curl, no wget -- so without this line a
+#  container healthcheck has nothing to call /health with. The alternative was to keep the
+#  image untouched and drive a bash /dev/tcp probe from Compose, which was rejected twice
+#  over: it proves a socket accepts rather than that the endpoint answers, and it puts a line
+#  nobody can read at a glance in the first file a reviewer opens. Above USER because apt
+#  needs root; the lists are removed in the same layer or they ship inside the image.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
 #  APP_UID comes from the base image. Its absence is a standard review finding and the fix is
 #  this one line, so there is no version of this file where it is worth omitting.
 USER $APP_UID

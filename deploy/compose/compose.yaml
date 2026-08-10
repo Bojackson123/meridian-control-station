@@ -1,0 +1,142 @@
+# The whole station: a database, the API, and the console in front of it.
+#
+#     ./tools/bootstrap-env.sh                                              (once, after cloning)
+#     docker compose --env-file .env -f deploy/compose/compose.yaml up --build
+#
+# Both commands run from the repo root, and --env-file is not optional. Compose looks for
+# .env beside the compose file, and the bootstrap scripts write it to the repo root, where a
+# generated credential is easier to notice and harder to commit by accident. Pointing at it
+# explicitly was preferred over moving it: --project-directory would move it too, but it also
+# re-roots the build contexts below, and env_file: on each service populates container
+# environments without feeding the ${...} substitutions the ports and the connection string
+# are built from.
+#
+# Nothing here reaches the network for anything but the three base images. No accounts, no
+# API keys, no tile CDN -- the console's offline claim is only true if this file keeps it.
+
+#  Otherwise the project name comes from this file's parent directory, and every container,
+#  network and volume is prefixed "compose-", which says nothing about whose they are.
+name: mcs
+
+services:
+
+  db:
+    #  Pinned to the same tag the integration tests spin up through Testcontainers. Three
+    #  Postgres versions across three environments is a bad week waiting to happen.
+    image: postgres:18-alpine
+
+    environment:
+      #  The :? form fails the whole command, naming the variable, when .env is missing or
+      #  --env-file was forgotten. Without it Compose substitutes an empty string and
+      #  Postgres initialises a data directory with a blank superuser password -- a stack
+      #  that comes up, looks fine, and is wrong in a way nothing reports.
+      POSTGRES_USER: ${POSTGRES_USER:?missing -- run tools/bootstrap-env and pass --env-file .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?missing -- run tools/bootstrap-env and pass --env-file .env}
+      POSTGRES_DB: ${POSTGRES_DB:?missing -- run tools/bootstrap-env and pass --env-file .env}
+
+    #  /var/lib/postgresql, not /var/lib/postgresql/data. The 18 images keep their data in a
+    #  major-version subdirectory so that pg_upgrade --link can work across one mount, and
+    #  they refuse to start at all if they find a mount at the old path -- the familiar one
+    #  from every Postgres compose file written before 18 is now an error at boot, not a
+    #  deprecation. Mounting the parent is what makes a later major upgrade possible.
+    #
+    #  A named volume rather than a bind mount to a host path: Postgres chowns this directory
+    #  on first init, which against a Windows or macOS bind mount either fails outright or
+    #  produces a directory the container cannot own.
+    volumes:
+      - pgdata:/var/lib/postgresql
+
+    #  Deliberately not published. Nothing outside this network needs it, and a Postgres on
+    #  0.0.0.0:5432 is not a default worth shipping to anyone who runs this. For a psql
+    #  session against a running stack, add: ports: ["127.0.0.1:5432:5432"].
+
+    healthcheck:
+      #  -d is the point of this line. Plain pg_isready answers as soon as the server accepts
+      #  connections, which during first init is several seconds before the database named
+      #  here exists -- and that gap is exactly the window the API starts in. $$ escapes the
+      #  substitution so the container's shell expands these, not Compose.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build:
+      #  The repo root, because Mcs.Api references Mcs.Core and Mcs.Adapters and a context
+      #  rooted at src/Mcs.Api could not see them. Relative to this file, not to the working
+      #  directory the command was run from.
+      context: ../..
+      dockerfile: src/Mcs.Api/Dockerfile
+
+    environment:
+      #  Assembled here from the three POSTGRES_* values; the connection string itself is
+      #  never stored anywhere, so there is no second place a rotated password has to reach.
+      #  ASP.NET's __ convention maps this onto ConnectionStrings:Mcs with no code.
+      ConnectionStrings__Mcs: Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+
+    depends_on:
+      db:
+        #  service_started is not enough: the API gives Postgres thirty seconds to answer and
+        #  then exits non-zero by design, so starting it against a container that is still
+        #  running initdb spends that budget on nothing.
+        condition: service_healthy
+
+    #  nginx proxies /api, so the console does not need this. It is published so a smoke
+    #  suite and a human with curl can reach /health and /health/db without going through the
+    #  proxy -- and comparing direct against proxied is how an SSE buffering problem gets
+    #  diagnosed rather than guessed at.
+    ports:
+      - "${MCS_API_PORT:?missing -- run tools/bootstrap-env and pass --env-file .env}:8080"
+
+    healthcheck:
+      #  /health, not /health/db: liveness runs no checks and stays green while Postgres is
+      #  still coming up. Pointing this at readiness would make a station that is correctly
+      #  refusing to serve a stale schema look like a container Compose should give up on.
+      #  127.0.0.1 rather than localhost, for the reason spelled out on the web probe below.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      #  Generous, because migrations run before Kestrel listens. Failures inside this window
+      #  are not counted, and the first success ends it early -- so the cost of overshooting
+      #  is nothing, and the cost of undershooting is a healthy service reported as broken.
+      start_period: 40s
+
+  web:
+    build:
+      context: ../../web
+
+    #  Plain dependency, not service_healthy. nginx resolves the api hostname per request
+    #  through Docker's DNS rather than at startup, so it comes up regardless; early requests
+    #  502 and the page retries. Waiting for health here would only delay the URL a reviewer
+    #  opens, and would couple a static file server to the liveness of something else.
+    depends_on:
+      - api
+
+    #  The one to open.
+    ports:
+      - "${MCS_WEB_PORT:?missing -- run tools/bootstrap-env and pass --env-file .env}:8080"
+
+    healthcheck:
+      #  wget, not curl: this image is Alpine and BusyBox provides wget. The API's Debian
+      #  base provides neither, which is why its Dockerfile installs one.
+      #
+      #  127.0.0.1, not localhost. localhost resolves to ::1 first here, nginx `listen 8080`
+      #  binds IPv4 only, and BusyBox wget takes the first address and stops -- so the probe
+      #  reports connection refused against a server that is serving perfectly. curl would
+      #  have fallen back to IPv4 and hidden it; the literal address is the same length and
+      #  depends on nothing.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+#  No restart: policy anywhere above. A service that cannot start should stop and say so --
+#  the API exiting non-zero because it has no database is information, and restart: always
+#  turns it into a container that looks busy. No simulator service either: it is a stub, and
+#  an empty service reserved for later is not a service.
+
+volumes:
+  pgdata:
