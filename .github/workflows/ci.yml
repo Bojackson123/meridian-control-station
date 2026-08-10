@@ -1,0 +1,177 @@
+# What a machine that isn't yours proves about every commit.
+#
+# The README says the build is clean with warnings as errors and that `docker compose up` runs
+# the whole station offline with no accounts. Both are claims about a clean checkout, and a clean
+# checkout is the one thing a development machine cannot produce -- no SDK cached, no images
+# pulled, no .env left over from last week, no accidental dependency on something installed
+# months ago for an unrelated project. That is the whole reason this file exists.
+#
+# Two jobs rather than one, so a broken build fails in two minutes instead of waiting behind a
+# compose build it was never going to reach.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  #  Manual trigger, so re-running a red job that failed on something external -- a registry
+  #  timeout, a runner image change -- does not need an empty commit to hang it on.
+  workflow_dispatch:
+
+#  Read-only by default. Neither job pushes anything, comments on anything, or publishes
+#  anything; a token that could is a finding with a one-line fix.
+permissions:
+  contents: read
+
+#  A quick follow-up push supersedes the run in flight rather than racing it. Keyed on the ref so
+#  concurrent PRs do not cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+#  Actions are pinned to major tags, not commit SHAs. SHAs are stricter and were rejected on the
+#  grounds that strictness here has an expiry date: with no dependency updater configured, a set
+#  of SHAs is a set of actions frozen at whatever was current the day this file was written, never
+#  patched again, and nothing reports that. A major tag from the `actions` org accepts patches
+#  from the single publisher GitHub itself controls. Revisit if this repo grows an updater.
+
+jobs:
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    #  Default is 360. A hung test would otherwise burn six hours of runner time before anyone
+    #  noticed; this job has never taken more than three minutes.
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          #  Reads the version out of global.json rather than repeating it. This repo already
+          #  states 10.0.302 in two places -- global.json and the SDK tag in the API's
+          #  Dockerfile -- and a third that could drift silently is one too many.
+          global-json-file: global.json
+
+      #  No NuGet cache. The alternative -- RestorePackagesWithLockFile in Directory.Build.props
+      #  -- is a real improvement in the abstract and buys little here: every PackageReference in
+      #  the repo already carries an exact version, so the resolved graph is the same graph
+      #  without lock files. And it would not make the audit deterministic, which is the usual
+      #  argument for it: NuGetAudit resolves against an advisory database that moves on its own,
+      #  so a commit that was green last week can go red on a rebuild either way. Eight new
+      #  committed files and a --locked-mode decision to save thirty seconds, deferred.
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        #  Release specifically. TreatWarningsAsErrors and the NuGetAudit settings in
+        #  Directory.Build.props apply to both configurations, but Release is what the API image
+        #  publishes, so this is the build whose warnings would otherwise reach a container.
+        run: dotnet build -c Release --no-restore
+
+      #  Three steps rather than one solution-wide `dotnet test`, for two reasons. The job graph
+      #  names the suite that broke without anyone opening a log; and a solution-wide run would
+      #  sweep in Mcs.System.Tests, which has no stack to talk to here and would skip itself --
+      #  eight quiet skips inside an otherwise green run is the precise failure the smoke job
+      #  below is built to prevent, and it would be sitting in this job instead.
+      - name: Test — domain
+        run: dotnet test tests/Mcs.Core.Tests -c Release --no-build
+
+      - name: Test — host
+        run: dotnet test tests/Mcs.Api.Tests -c Release --no-build
+
+      - name: Test — integration
+        #  Testcontainers starts a real Postgres. No setup step: ubuntu-latest ships Docker
+        #  installed and running, which is the whole reason this suite can live in the fast job.
+        run: dotnet test tests/Mcs.Integration.Tests -c Release --no-build
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          #  .nvmrc, which web/Dockerfile also pins to. The console is built by this runner and
+          #  by that image, and them disagreeing about Node is a class of bug worth making
+          #  impossible rather than watching for.
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        #  ci, not install: installs the lockfile exactly and fails if package.json has drifted
+        #  from it.
+        run: npm ci
+
+      #  Build before lint. `npm run build` runs `tsc -b` first, so a type error surfaces here as
+      #  a type error rather than as whatever eslint happens to say about the same line.
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: Lint web
+        working-directory: web
+        run: npm run lint
+
+  smoke:
+    runs-on: ubuntu-latest
+    #  Gated on the fast job, so a compilation error does not also spend five minutes building
+    #  three container images to discover the same thing.
+    needs: build-and-test
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Generate .env
+        #  Running the bootstrap script rather than writing the variables inline is the point of
+        #  this step. It is the first command anyone runs against a cold clone, it is therefore
+        #  the one least worth leaving broken, and nothing else in this repository would notice if
+        #  it rotted. Exercising it per commit is the cheapest guard there is.
+        run: ./tools/bootstrap-env.sh
+
+      - name: Start the stack
+        #  --env-file is not optional and not decoration. Compose looks for .env beside the
+        #  compose file; the bootstrap script writes it to the repo root, where a generated
+        #  credential is harder to commit by accident. Omitted, every ${...} substitutes empty and
+        #  the :? guards in compose.yaml fail the command naming the first variable -- which is
+        #  the good outcome, but it is still a failure. Every compose invocation below carries it,
+        #  including logs and down, which substitute variables too.
+        run: docker compose --env-file .env -f deploy/compose/compose.yaml up -d --build --wait
+
+      - name: Smoke test the running stack
+        #  Release to match the images this is talking to, though nothing in this project is
+        #  configuration-dependent -- consistency with the job above is the only argument.
+        run: dotnet test tests/Mcs.System.Tests -c Release
+        env:
+          #  Without this the suite skips itself when nothing answers, and this job reports green
+          #  for a run that asserted nothing about the stack it just built. That is worse than no
+          #  smoke suite, because it is indistinguishable from success at a glance.
+          MCS_SMOKE_REQUIRED: 1
+          #  MCS_SMOKE_BASE_URL and MCS_SMOKE_API_URL are deliberately left unset. The suite
+          #  defaults to 8080 and 8081, and the bootstrap script writes 8080 and 8081; setting
+          #  them here would pin CI to values of its own and let it stay green straight through a
+          #  bootstrap change that broke the ports for everyone cloning the repo. Unset, this job
+          #  walks the same default path a cold clone does.
+
+      - name: Dump compose logs
+        #  Before teardown, not after -- `down` takes the containers and their logs with it.
+        #
+        #  The highest-value step in this file. Without it a CI failure is a red X and an
+        #  assertion message; with it, the API's structured JSON logs are right there, and most
+        #  failures can be diagnosed without reproducing them locally at all.
+        if: failure()
+        run: docker compose --env-file .env -f deploy/compose/compose.yaml logs --no-color
+
+      - name: Tear down
+        #  always(), so a failed assertion or a cancelled run still removes the volume. -v
+        #  matters: Postgres fixes its superuser password when it initialises its data directory,
+        #  so a pgdata volume surviving into a run with a freshly generated password is an
+        #  authentication failure against a database nothing can open.
+        if: always()
+        run: docker compose --env-file .env -f deploy/compose/compose.yaml down -v
