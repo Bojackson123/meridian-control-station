@@ -141,7 +141,9 @@ try
     {
         app.MapOpenApi();
     }
-    // Droped because we will be using nginx behind HTTP.
+    // Left out, not forgotten. nginx terminates in front of this and proxies over plain HTTP
+    // inside the Compose network, so a redirect here would answer every proxied request with a
+    // 307 to an https port nothing is listening on.
     // app.UseHttpsRedirection();
 
     app.MapStationHealthChecks();

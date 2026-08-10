@@ -1,0 +1,13 @@
+# The build context for the console image (web/Dockerfile), whose context is this
+# directory. The API image has its own .dockerignore at the repo root.
+#
+# node_modules is the one that matters: it is hundreds of megabytes, and a host-installed
+# tree can carry platform-specific binaries that are wrong for the Linux build stage. The
+# image installs its own from the lockfile instead.
+node_modules
+
+# A stale dist/ from `npm run build` on the host would be uploaded and then immediately
+# overwritten by the build stage. Never used, always paid for.
+dist
+
+.git

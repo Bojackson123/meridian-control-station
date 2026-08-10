@@ -1,0 +1,39 @@
+# The build context for the API image (src/Mcs.Api/Dockerfile), whose context is the repo
+# root because Mcs.Api references Mcs.Core and Mcs.Adapters.
+#
+# Docker's context is the working tree, not HEAD, so git-ignored is not Docker-ignored.
+# Everything named here would otherwise be uploaded to the daemon on every build, and
+# anything a COPY line touches would be baked into a layer.
+
+# internal/ is deliberately never committed. A shipped image -- not a commit -- is the one
+# realistic path by which it could still escape, and this line is the only thing in front
+# of that. Same for .env: the generated file holds a working Postgres password.
+internal
+.env
+.env.*
+!.env.example
+
+# Host-built binaries. Left in the context they are a slow upload, and any COPY broad
+# enough to catch them puts Windows-built artifacts into a Linux image.
+**/bin
+**/obj
+
+# .git is the largest single directory here and the build reads nothing from it. Version
+# stamping from git would be the reason to keep it; there is none yet.
+.git
+.gitignore
+.gitattributes
+docs
+tests
+
+# Editor and tooling state, and whatever the last local run left lying around. None of it is
+# secret and none of it is copied, but it is uploaded on every build and it only accumulates.
+.vs
+.vscode
+.idea
+.claude
+*.log
+
+# The console builds from ./web as its own context with its own .dockerignore, so nothing
+# in the API image comes from here -- and web/node_modules alone is hundreds of megabytes.
+web
