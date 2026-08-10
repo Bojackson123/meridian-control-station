@@ -15,8 +15,18 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\Mcs.Core\Mcs.Core.csproj" />
-  </ItemGroup>
+  <!--
+    No ProjectReference, and that is the design. This suite talks HTTP to container images,
+    which are a different build from the source tree it compiles next to; sharing a DTO or a
+    route constant with the API would let the test and the thing under test agree with each
+    other about a contract neither still honours. A renamed JSON property has to go red here
+    exactly as it would go blank in the browser, so the wire contract is retyped by hand in
+    WireContract.cs against web/src/telemetry/types.ts, the console's view rather than the host's.
+
+    Nothing extra is needed to read the stream: System.Net.ServerSentEvents, System.Net.Http.Json
+    and System.Text.Json are all in Microsoft.NETCore.App on net10.0. Worth keeping that way,
+    because Directory.Build.props audits every transitive package at severity low with warnings
+    as errors: each dependency added here is a future build break waiting on an advisory.
+  -->
 
 </Project>

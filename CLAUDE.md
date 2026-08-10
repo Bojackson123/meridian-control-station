@@ -24,8 +24,21 @@ dotnet test tests/Mcs.Core.Tests --filter "FullyQualifiedName~InMemoryTelemetryS
 
 `tests/Mcs.Core.Tests` and `tests/Mcs.Api.Tests` are pure unit tests and need nothing.
 `tests/Mcs.Integration.Tests` starts a real Postgres via Testcontainers, so **Docker must be
-running** or that project fails. `tests/Mcs.System.Tests` (compose smoke) is an empty
-placeholder.
+running** or that project fails.
+
+`tests/Mcs.System.Tests` drives the running compose stack over HTTP and **skips itself when no
+stack is listening**, so it stays out of the way of the inner loop:
+
+```bash
+docker compose --env-file .env -f deploy/compose/compose.yaml up -d --wait
+MCS_SMOKE_REQUIRED=1 dotnet test tests/Mcs.System.Tests
+```
+
+`MCS_SMOKE_REQUIRED=1` turns "no stack" from a skip into a failure, and CI must set it — a smoke
+suite that silently skips reports green for a run that asserted nothing. Origins come from
+`MCS_SMOKE_BASE_URL` / `MCS_SMOKE_API_URL`, defaulting to the `.env.example` ports (8080 / 8081).
+The project deliberately has **no project references**: it retypes the wire contract so a renamed
+JSON property fails it rather than being refactored along with the API.
 
 Running the API needs a Postgres — **without one it retries for 30s, logs, and exits
 non-zero by design.** For the local inner loop:
@@ -58,7 +71,7 @@ src/Mcs.Simulator   stub until M1 brings MAVLink
 web/                React + TypeScript + Vite + MapLibre console
 web/public/basemap  the offline MapLibre style; its rationale lives in the file's `metadata`
 deploy/migrations/  numbered .sql, embedded into Mcs.Api and applied on startup
-tests/              unit (Core, Api) · integration (real Postgres) · system (empty)
+tests/              unit (Core, Api) · integration (real Postgres) · system (compose smoke)
 ```
 
 **`Mcs.Core` has zero package references and must keep them.** No logger, no web, no

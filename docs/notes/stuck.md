@@ -223,3 +223,52 @@ And the console still shows the last known positions during an outage with nothi
 to say so — the browser console is the only place a disconnect is visible today. That is
 MCS-002's job and needs the state language designed before it can be built, but it is the
 gap I would close first.
+
+---
+
+## 2026-08-10 — the smoke assertion I could not make fail
+
+**Symptom.** The compose smoke suite hits the SSE stream twice on purpose: once straight at
+the API, once through nginx. The second exists for one reason — a proxy that buffers the
+stream passes the direct test and delivers nothing to a console — so before believing it I
+went to reproduce the failure it was written for. Set `proxy_buffering on;` in the `/api`
+block, rebuilt the web image, ran the suite. All eight green. The assertion written to catch
+buffering did not notice buffering.
+
+**What I tried.**
+
+1. Suspected `X-Accel-Buffering: no`, which the API sends and nginx honours regardless of
+   `proxy_buffering`. Added `proxy_ignore_headers X-Accel-Buffering;` so both belts were off
+   at once. Still all eight green.
+2. Stopped guessing and measured, with `curl -N` timestamping each `data:` line through the
+   proxy and directly. Proxied: events at 30.13, 30.85, 31.85, 32.80, 33.74 — one per
+   second. Direct: the same, to within tens of milliseconds. With buffering fully on, nginx
+   was adding no delay at all.
+3. Checked whether the app-side header at least survives the hop, so the suite could assert
+   on it instead. It does not — nginx consumes `X-Accel-Buffering` and it is absent from the
+   proxied response headers. Nothing to assert.
+4. Went looking for a proxy-only fault the assertion *does* catch, and the config names one
+   itself: `proxy_pass` goes through a variable, so a wrong service name is a 502 at request
+   time rather than a refusal to boot. Pointed it at `api-typo:8080`. The proxied stream test
+   failed with "answered 502" and the direct one stayed green — which is the discrimination
+   the assertion exists to provide, just not via the mechanism I expected.
+
+**What it was.** `proxy_buffering on` does not mean nginx withholds a response until a buffer
+fills. It means nginx is *allowed* to read from the upstream faster than the client drains,
+so that a slow client cannot hold an upstream connection open. Against a fast client on a
+local socket there is nothing to decouple, and each proxied read goes straight out. The
+burst-or-nothing symptom the setting is famous for needs a slow or distant client, a
+compressing filter, or payloads that make the buffer arithmetic bite — none of which a smoke
+test running next to the container reproduces.
+
+**Carry forward.** The `proxy_buffering off;` line stays: it is correct, it is free, and the
+failure it prevents is real for a browser two networks away even though it is invisible from
+here. But nothing in the suite guards it, and the honest statement of what the proxied stream
+test covers is "the proxy is present, resolves, and passes an event stream through" — not
+"the proxy is not buffering." Worth knowing before someone deletes the line on the strength
+of a green suite.
+
+The general lesson is cheaper than the specific one: the suite would have shipped green,
+with a comment claiming it guarded something it did not, if I had trusted the assertion
+instead of spending twenty minutes trying to make it fail. A test written for a specific
+failure mode and never run against that failure mode is a guess with a green tick on it.

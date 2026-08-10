@@ -193,7 +193,8 @@ src/Mcs.Adapters    vehicle adapters (empty)
 src/Mcs.Simulator   vehicle simulator (stub)
 web/                React + TypeScript + Vite console; the basemap is served from web/public
 tests/              unit tests for the core and the feed; integration tests against a real
-                    Postgres via Testcontainers; system (compose smoke) project is empty
+                    Postgres via Testcontainers; a system suite that drives the running
+                    compose stack over HTTP, and skips when no stack is up
 deploy/migrations/  numbered .sql files, applied by the API on startup
 deploy/compose/     compose.yaml — the whole stack, database and API and console
 docs/notes/         engineering notes, including what got stuck and why
