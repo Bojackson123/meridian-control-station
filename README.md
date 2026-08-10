@@ -1,5 +1,7 @@
 # Meridian Control Station
 
+[![CI](https://github.com/Bojackson123/meridian-control-station/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Bojackson123/meridian-control-station/actions/workflows/ci.yml)
+
 A ground control station for simulated uncrewed vehicles: live fleet telemetry, mission
 planning with pre-flight conflict checking, and command with a durable audit trail.
 
