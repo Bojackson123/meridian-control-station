@@ -37,13 +37,15 @@ Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download) (`global.json`
 accounts, nothing to sign up for.
 
 ```bash
-docker run --rm -d --name mcs-pg -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=mcs \
-  -p 5432:5432 postgres:18-alpine
+docker run --rm -d --name mcs-pg -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=mcs -p 5432:5432 postgres:18-alpine
 
 dotnet build
 dotnet test
 dotnet run --project src/Mcs.Api
 ```
+
+The `docker run` is one line on purpose: a `\` continuation is a bash-ism, and pasting it
+into PowerShell runs a truncated command that fails somewhere less obvious than it should.
 
 `dotnet test` needs Docker running for the integration suite, which starts its own
 throwaway Postgres. The unit tests (`tests/Mcs.Core.Tests`, `tests/Mcs.Api.Tests`) need
@@ -61,6 +63,12 @@ curl -N localhost:5271/api/telemetry/stream  # the same frames, live, as they ar
 
 `-N` disables curl's own buffering. Without it the stream looks dead, and the endpoint gets
 blamed for it.
+
+**On Windows, spell it `curl.exe`.** In PowerShell, `curl` is an alias for
+`Invoke-WebRequest`, which rejects `-N` outright and buffers a whole response before
+returning it — so it could not print a stream even if the flag existed. `curl.exe` ships in
+`System32` on Windows 10 and 11 and takes the flags above verbatim. `jq` does not ship with
+Windows; drop the pipe and read the JSON raw, or install it.
 
 ```
 event: telemetry
