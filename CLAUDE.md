@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A ground control station for simulated uncrewed vehicles (.NET 10 / ASP.NET Core backend,
-React + Vite frontend, Postgres). It is early: the README's "What runs today" table is
+React + Vite frontend, Postgres). It is early: the README's "What's real at this tag" table is
 authoritative and is kept honest deliberately — do not add a claim to it that the code
 does not honour.
 

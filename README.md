@@ -5,12 +5,62 @@
 A ground control station for simulated uncrewed vehicles: live fleet telemetry, mission
 planning with pre-flight conflict checking, and command with a durable audit trail.
 
-Built in the open, one working slice at a time. **This is early** — the section below says
-exactly what runs today, and nothing here describes anything that doesn't.
+![The console: one simulated vehicle on the bundled offline basemap, updating at 1 Hz](docs/demo-v0.1.gif)
 
 ---
 
-## What runs today
+## What this is
+
+A personal project, built in the open one working slice at a time. This is `v0.1` — the
+first tag, and a walking skeleton: one fake vehicle on a map, a database the station
+migrates on startup, structured logs, and the whole thing under one `docker compose up`.
+
+The table below says exactly what runs at this tag, and nothing in this file describes
+anything that doesn't. It does not connect to real aircraft.
+
+---
+
+## Quickstart
+
+Docker with Compose v2, and nothing else. No accounts, no API keys, nothing to sign up for.
+
+The build pulls base images and packages the way any build does. What runs afterwards does
+not: once the stack is up, nothing it serves reaches another origin, and you can pull the
+network out from under it and keep flying.
+
+```bash
+git clone https://github.com/Bojackson123/meridian-control-station.git
+cd meridian-control-station
+./tools/bootstrap-env.sh    # PowerShell: .\tools\bootstrap-env.ps1
+docker compose --env-file .env -f deploy/compose/compose.yaml up --build
+```
+
+Then open `http://localhost:8080`. The API is on `http://localhost:8081` for `curl`; the
+console reaches it through the web container's `/api` proxy instead, so the browser only ever
+talks to one origin.
+
+`--env-file` is not optional and not decoration. Compose looks for `.env` beside the compose
+file, and the bootstrap script writes it to the repo root — pointing at it explicitly is the
+smaller of the two costs. Omit it and the stack refuses to start, naming the first variable
+it could not resolve.
+
+Run the bootstrap script rather than copying `.env.example`: the password in that file is a
+placeholder, and a stack standing up with a placeholder for a credential is the failure the
+script exists to prevent.
+
+**If you have run the stack before and then regenerated `.env`, tear the volume down first:**
+
+```bash
+docker compose --env-file .env -f deploy/compose/compose.yaml down -v
+```
+
+Postgres fixes the superuser password when it first initialises its data directory and ignores
+the variable on every start afterwards, so a new `.env` against an old volume fails
+authentication — the API reports it and exits non-zero rather than starting without a database.
+
+---
+
+## What's real at this tag
 
 A hardcoded telemetry feed flying a vehicle around a closed circuit at 1 Hz, into a bounded
 in-memory store, served over HTTP as a snapshot and a live event stream — and a Postgres
@@ -18,7 +68,7 @@ database the station migrates on startup and reports the state of over HTTP. The
 draws that feed: an offline basemap that runs with the network off, with the fleet on it,
 each vehicle a marker pointed along the heading it reported.
 
-| | |
+| | Status at `v0.1` |
 | --- | --- |
 | Telemetry model and ingest boundary | working, tested |
 | Bounded store — 12 vehicles, per-vehicle history, live subscriptions | working, tested |
@@ -28,33 +78,79 @@ each vehicle a marker pointed along the heading it reported.
 | Telemetry HTTP API — `/api/vehicles` and an SSE `/api/telemetry/stream` | working, tested |
 | Offline basemap — dark MapLibre style, zoom-adaptive graticule, no third-party requests | working |
 | Map console — the fleet on the basemap, each marker oriented by heading | working |
+| Persistence of domain data | not yet — the schema mechanism is proven, the tables that use it arrive with the features that define them |
 | Console state language — live / stale / lost, alerts | not yet — a dead feed shows only in the browser console |
 | Docker Compose — database, API and console, one command, offline | working |
 | MAVLink, mission planning, deconfliction, auth | not yet |
 
-From a clean clone, with nothing installed but Docker:
+---
 
-```bash
-./tools/bootstrap-env.sh    # tools\bootstrap-env.ps1 on Windows — writes .env with a generated password
-docker compose --env-file .env -f deploy/compose/compose.yaml up --build
+## Architecture
+
+```
+src/Mcs.Core        the domain — telemetry model, ingest boundary, bounded store
+src/Mcs.Api         ASP.NET Core host; the fake feed lives here for now
+src/Mcs.Adapters    vehicle adapters (empty)
+src/Mcs.Simulator   vehicle simulator (stub)
+web/                React + TypeScript + Vite console; the basemap is served from web/public
+tests/              unit tests for the core and the feed; integration tests against a real
+                    Postgres via Testcontainers; a system suite that drives the running
+                    compose stack over HTTP, and skips when no stack is up
+deploy/migrations/  numbered .sql files, applied by the API on startup
+deploy/compose/     compose.yaml — the whole stack, database and API and console
+docs/notes/         engineering notes, including what got stuck and why
 ```
 
-Then open `http://localhost:8080`. The API is on `http://localhost:8081` for `curl`; the
-console reaches it through the web container's `/api` proxy instead, so the browser only ever
-talks to one origin.
+The core holds the vehicle-agnostic domain: what telemetry is, how it enters the system, and
+how much of it is kept. Everything that knows a *protocol* — how to talk to a particular kind
+of vehicle — is an adapter, and adapters depend on the core rather than the other way round.
+Adding a ground vehicle later should mean writing a new adapter and changing no core file; a
+core that has grown a web, database or protocol dependency makes that claim indefensible.
 
-`--env-file` is not optional and not decoration. Compose looks for `.env` beside the compose
-file, and the bootstrap scripts write it to the repo root — pointing at it explicitly is the
-smaller of the two costs. Omit it and the stack refuses to start, naming the first variable
-it could not resolve.
+`Mcs.Core` therefore has no package references at all, and its project file being empty is
+what enforces it. The fake feed sits in the API host for now precisely because it is not an
+adapter — there is no wire format to adapt yet.
 
 ---
 
-## Running it
+## Limitations
+
+- Single author on both sides of every interface. Nothing here has been integrated against
+  software someone else wrote.
+- Simulated vehicles only.
+- One fake vehicle by default. The 12-vehicle bound is designed into the data structures and
+  tested, not demonstrated on screen — set `FakeFeed__VehicleCount=12` to see it.
+- Telemetry is in-memory and bounded. There is no durable history, and that is a stated
+  non-goal rather than a gap.
+- No authentication. Anything the API exposes is exposed to anyone who can reach it.
+- The basemap is deliberately minimal — no labels, no coastline — to keep the stack fully
+  offline.
+- Nothing on screen yet distinguishes a vehicle reporting now from one that stopped ten
+  minutes ago.
+
+---
+
+## What's next
+
+In order, without dates:
+
+- **A real vehicle link.** MAVLink from a simulator process, replacing the in-process fake
+  feed with an adapter and a wire format.
+- **A console state language.** Live, stale and lost as things an operator can see, so the
+  last limitation above stops being one.
+- **Commands and tasking.** A command lifecycle with a durable audit trail, behind an
+  authenticated operator.
+- **A second vehicle type.** A ground vehicle, added by writing an adapter and not by
+  editing the core.
+- **Pre-flight conflict checking.** Mission plans checked against each other before anything
+  flies.
+
+---
+
+## Running it without Docker
 
 Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download) (`global.json` pins
-10.0.302, rolling forward to the latest patch) and a Postgres for the API to migrate. No
-accounts, nothing to sign up for.
+10.0.302, rolling forward to the latest patch) and a Postgres for the API to migrate.
 
 ```bash
 docker run --rm -d --name mcs-pg -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=mcs -p 5432:5432 postgres:18-alpine
@@ -138,8 +234,7 @@ cd web && npm install && npm run dev
 A dark map centred on the feed's circuit, a scale bar, a graticule that changes spacing with
 the zoom — and the fleet on top of it, one marker per vehicle, rotated to the heading in its
 latest frame. **Start the API first:** the dev server proxies `/api` to it on port 5271, and
-with nothing behind that proxy the basemap draws but stays empty. Set
-`FakeFeed__VehicleCount=12` and you get twelve markers spaced around the circuit.
+with nothing behind that proxy the basemap draws but stays empty.
 
 The marker steps once a second rather than gliding, and that is the interesting part. Smooth
 motion means interpolating between frames, which puts the vehicle at a position it never
@@ -183,28 +278,6 @@ The `FakeFeed` section of `appsettings.json`, overridable by environment variabl
 
 Values are validated at startup: a setting outside its range stops the host with a message
 naming it, rather than flying a plausible-looking circuit somewhere nobody meant.
-
----
-
-## Layout
-
-```
-src/Mcs.Core        the domain — telemetry model, ingest boundary, bounded store
-src/Mcs.Api         ASP.NET Core host; the fake feed lives here for now
-src/Mcs.Adapters    vehicle adapters (empty)
-src/Mcs.Simulator   vehicle simulator (stub)
-web/                React + TypeScript + Vite console; the basemap is served from web/public
-tests/              unit tests for the core and the feed; integration tests against a real
-                    Postgres via Testcontainers; a system suite that drives the running
-                    compose stack over HTTP, and skips when no stack is up
-deploy/migrations/  numbered .sql files, applied by the API on startup
-deploy/compose/     compose.yaml — the whole stack, database and API and console
-docs/notes/         engineering notes, including what got stuck and why
-```
-
-`Mcs.Core` has no package references at all, deliberately: adding a second vehicle type
-later must not touch a core file, and a core that has grown a web or database dependency
-makes that claim indefensible.
 
 ---
 
