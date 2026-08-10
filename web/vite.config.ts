@@ -5,6 +5,13 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
 
+  // MapLibre starts its worker with `{ type: 'module' }`, so the chunk Vite emits for it has to be
+  // one. The default here is an IIFE, which survives by accident today only because the bundled
+  // worker happens to carry no import statements -- not a property worth depending on.
+  worker: {
+    format: 'es',
+  },
+
   // The console fetches /api from its own origin, in dev and in compose alike. Dev is the only
   // place the two are really separate processes, so the dev server bridges them here rather than
   // the API carrying a CORS policy that only an IsDevelopment() check keeps out of production.

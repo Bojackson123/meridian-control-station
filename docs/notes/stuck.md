@@ -94,3 +94,64 @@ the prose above it was not, and only the prose is load-bearing for the next pers
 `VehicleRing.Append` has since landed, so the write path runs end to end — that sentence
 sat here claiming otherwise for a day, which is the same failure as the paragraphs above
 and worth recording rather than quietly deleting.
+
+---
+
+## 2026-08-09 — a basemap that renders and a map that stays empty
+
+**Symptom.** Two separate things on the same day, both under the offline basemap.
+
+The first was cheap to spot and expensive to believe: the background layer painted, the
+scale bar and attribution appeared, and the graticule layer drew nothing. No console error,
+no failed request — one request to `/node_modules/.vite/deps/maplibre-gl-worker.mjs` sitting
+at *pending* forever. The dev server had said, once, on startup and above a screen of other
+output: "the file does not exist in the optimize deps directory."
+
+The second only showed up while checking the first. Zooming out left the grid covering a
+rectangle in the middle of the screen with bare map around it — sometimes. Other times the
+same zoom settled correctly.
+
+**What I tried.**
+
+1. Read what MapLibre v6 actually does to start its worker, rather than trusting the dev
+   server's suggested `optimizeDeps.exclude`. It is `new URL('./maplibre-gl-worker.mjs',
+   import.meta.url)`, resolved at runtime. No bundler can see through that, so nothing
+   copies the file — and this is not a dev-only problem: `vite build` emitted no worker
+   chunk either, so the production bundle had the same silent hole. That is the part worth
+   remembering. The dev server's warning pointed at the dev server, and the bug was in both.
+2. Rejected copying the worker into `public/` with an asset import. `maplibre-gl-worker.mjs`
+   imports `./maplibre-gl-shared.mjs` relatively, so a copy of the worker alone lands next to
+   a file that is no longer its sibling. `?worker&url` bundles the pair and returns a URL on
+   this origin, which `setWorkerUrl` accepts. Costs 471 KB of duplicated shared code in the
+   output; it is served from localhost and it buys a map that works.
+3. For the second symptom, assumed stale data and moved the update from `moveend` to `move`,
+   reasoning that the memo would reject the frames that had not crossed a cell boundary.
+   Wrong, and it made things worse: a zoom animation grows the viewport every frame, so the
+   grid genuinely differs every frame, and every one re-indexes the source in the worker.
+   The tiles then never finish for as long as the camera moves. Reverted.
+4. Stopped reading screenshots and exposed the map on `window` for ten minutes to get
+   numbers. That ended it. At every zoom from 2 to 20 the source contained 15–20 features,
+   the drawn extent covered the viewport on both axes, and `queryRenderedFeatures` returned
+   24–80. The implementation was correct the whole time.
+
+**What it was.** One real bug and one misread. The worker was real, and it was a production
+bug wearing a dev-server warning. The rectangle was MapLibre re-tiling the GeoJSON source
+after `setData`, photographed mid-flight — every screenshot I took during an ease animation
+caught a partial grid, and every one I took after it settled was complete. I spent longer on
+the symptom that was not a symptom, because a screenshot is evidence of *something* and it is
+easy to keep collecting more of it instead of asking the map what it holds.
+
+Two things did come out of chasing it. The spacing ladder had 5x gaps in it (`0.05` to
+`0.01`), and "coarsest spacing with at least four divisions across the screen" turns a 5x gap
+into twenty divisions on screen — visible as a grid far denser than intended at some zooms,
+and invisible at others, which is why it took a screenshot to notice at all. A 1-2-5 ladder
+bounds it at ten. And the meridians were being cut at the last whole parallel, so at 30°
+spacing they stopped at 60° and left the top of a world-scale view empty; the projection
+limit bounds how far a meridian is *drawn* but removes a parallel outright, and collapsing
+both into one pair of indices had quietly conflated them.
+
+**Carry forward.** The pure parts of the graticule are exercisable from Node with
+`--experimental-strip-types` against the real `.ts` file, no test runner and no build. Both
+the ladder bound and the coverage property were found that way in seconds after a morning of
+squinting at JPEGs. `web/` still has no test framework; when it gets one, `chooseSpacingDegrees`
+and `gridFor` are already written to be called directly and should be the first things in it.

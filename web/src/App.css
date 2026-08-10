@@ -1,0 +1,7 @@
+/* The map is the page. `height: 100%` would need every ancestor up to `html` to have one too, and
+   fails silently to a zero-height container when any of them does not; `dvh` is measured against the
+   viewport directly and survives the mobile browser chrome that makes `vh` lie. */
+.map {
+  width: 100%;
+  height: 100dvh;
+}

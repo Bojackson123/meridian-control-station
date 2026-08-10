@@ -2,9 +2,32 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+
+    <!-- The console is required to run with no network beyond its own origin, and a Network tab you
+         once looked at is an observation, not a property. Every fetch directive here is 'self', so a
+         dependency that starts reaching for a CDN fails loudly the first time anyone runs the page
+         instead of quietly making the offline claim in the README false.
+
+         This is an origin policy, not XSS hardening -- 'unsafe-inline' below is load-bearing:
+         MapLibre positions its controls and markers with inline style attributes, and the dev
+         server's hot-reload preamble is an inline script. Tightening either one breaks the map. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self' 'unsafe-inline';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: blob:;
+               worker-src 'self' blob:;
+               child-src 'self' blob:;
+               connect-src 'self';
+               font-src 'self';
+               object-src 'none';
+               base-uri 'self'"
+    />
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>web</title>
+    <title>Meridian Control Station</title>
   </head>
   <body>
     <div id="root"></div>

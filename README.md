@@ -12,7 +12,9 @@ exactly what runs today, and nothing here describes anything that doesn't.
 
 A hardcoded telemetry feed flying a vehicle around a closed circuit at 1 Hz, into a bounded
 in-memory store, served over HTTP as a snapshot and a live event stream — and a Postgres
-database the station migrates on startup and reports the state of over HTTP.
+database the station migrates on startup and reports the state of over HTTP. The console is
+a map and a scale bar: the basemap is real and runs with the network off, and nothing is
+plotted on it yet.
 
 | | |
 | --- | --- |
@@ -22,7 +24,8 @@ database the station migrates on startup and reports the state of over HTTP.
 | Structured JSON logging | working |
 | Postgres — schema migration on startup, `/health` and `/health/db` | working, tested |
 | Telemetry HTTP API — `/api/vehicles` and an SSE `/api/telemetry/stream` | working, tested |
-| Map console | not yet — `web/` is an empty Vite scaffold |
+| Offline basemap — dark MapLibre style, zoom-adaptive graticule, no third-party requests | working |
+| Map console | not yet — the map renders, but nothing is on it |
 | Docker Compose | not yet |
 | MAVLink, mission planning, deconfliction, auth | not yet |
 
@@ -109,6 +112,27 @@ dbug: Mcs.Api.FakeFeed.FakeVehicleFeed[0]
 The numbers cohere, and it's worth checking that they do: consecutive frames are ~20.9 m
 apart against a reported 20.94 m/s, and the heading advances 3°/s — one 360° lap in 120 s.
 
+### The console
+
+```bash
+cd web && npm install && npm run dev
+```
+
+A dark map centred on the feed's circuit, a scale bar, and a graticule that changes spacing
+with the zoom. Nothing is plotted on it yet — the vehicle comes next.
+
+The basemap is bundled, not fetched: the MapLibre style and everything it references are
+served from `web/public`, there is no tile CDN and no API key, and the page carries a
+`default-src 'self'` policy so a dependency that starts reaching for one fails loudly rather
+than quietly making the offline claim false. It has no labels, because a style with labels
+downloads glyph files from somewhere. Confirm it yourself: DevTools → Network, tick
+**Disable cache**, hard-reload, sort by domain — every request is to `localhost`.
+
+There is no coastline. At a 400 m circuit the land polygon covers the whole screen and looks
+exactly like the background, so it would be several hundred KB of committed geodata bought
+for the zoom levels an operator never uses. The reasoning is recorded in the style file, and
+a land layer drops in later without touching anything else.
+
 ### Configuring the feed
 
 The `FakeFeed` section of `appsettings.json`, overridable by environment variable
@@ -137,7 +161,7 @@ src/Mcs.Core        the domain — telemetry model, ingest boundary, bounded sto
 src/Mcs.Api         ASP.NET Core host; the fake feed lives here for now
 src/Mcs.Adapters    vehicle adapters (empty)
 src/Mcs.Simulator   vehicle simulator (stub)
-web/                React + TypeScript + Vite scaffold
+web/                React + TypeScript + Vite console; the basemap is served from web/public
 tests/              unit tests for the core and the feed; integration tests against a real
                     Postgres via Testcontainers; system (compose smoke) project is empty
 deploy/migrations/  numbered .sql files, applied by the API on startup

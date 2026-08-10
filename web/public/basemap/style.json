@@ -1,0 +1,55 @@
+{
+  "version": 8,
+  "name": "Meridian console basemap",
+  "metadata": {
+    "mcs:offline": "Every source in this file is same-origin, and there is deliberately no 'sprite' or 'glyphs' key. MapLibre fetches glyph range files from the 'glyphs' URL the moment any layer uses a text-field, so a style with labels is a style that phones home. This basemap has no labels, and omitting both keys is what makes that structural rather than a thing to remember.",
+    "mcs:no-land-data": "There is no coastline or land polygon layer, and that is a decision rather than an omission. The station's operating scale is a few hundred metres over a fixed origin, where a land polygon covers the whole viewport and renders as a flat fill indistinguishable from the background -- it earns nothing where the console actually lives, and costs a sourced, simplified, licence-checked geodata file in the repository. A Natural Earth land source drops in here later without touching the layers below it, and only earns its place if the console ever zooms out far enough to see a coastline.",
+    "mcs:contrast": "Measured against the background: minor lines 1.76:1, major 2.58:1. Low, because the grid is orientation and never data -- the vehicle layer and the alert states built on it must be the brightest things on screen, and a near-white marker sits around 17:1 here, an order of magnitude above the grid. Low is not the same as invisible, though, and the first pass at 1.19:1 was the wrong side of that line: it vanished under a downscale, which is a fair proxy for a cheap monitor in bad light. If the graticule reads as a track it is too bright; if a screenshot loses it, it is too dark.",
+    "mcs:view": "The center and zoom below are the map's default view, not a duplicate of the feed's configured circuit. MapLibre applies them on style load when the map was constructed without a center or zoom, which keeps the coordinates out of the component.",
+    "mcs:attribution": "The graticule source carries the only attribution line this basemap owes. It names no dataset because none is bundled -- crediting Natural Earth for data that is not here would be exactly the kind of claim the offline story exists to keep honest. MapLibre credits itself through the attribution control's own defaults."
+  },
+
+  "center": [-86.5861, 34.7304],
+  "zoom": 15.5,
+
+  "sources": {
+    "graticule": {
+      "type": "geojson",
+      "attribution": "Graticule generated locally &mdash; no third-party map data",
+      "data": {
+        "type": "FeatureCollection",
+        "features": []
+      }
+    }
+  },
+
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#080c12"
+      }
+    },
+    {
+      "id": "graticule-minor",
+      "type": "line",
+      "source": "graticule",
+      "filter": ["==", ["get", "major"], false],
+      "paint": {
+        "line-color": "#2c3d4e",
+        "line-width": 1
+      }
+    },
+    {
+      "id": "graticule-major",
+      "type": "line",
+      "source": "graticule",
+      "filter": ["==", ["get", "major"], true],
+      "paint": {
+        "line-color": "#3f566d",
+        "line-width": 1.5
+      }
+    }
+  ]
+}

@@ -4,3 +4,9 @@ body,
   margin: 0;
   height: 100%;
 }
+
+/* Matches the basemap's background layer. Without it the first paint is a white flash before the
+   style loads, which on a dark console reads as a fault rather than a load. */
+body {
+  background: #080c12;
+}
