@@ -153,6 +153,12 @@ jobs:
           #  for a run that asserted nothing about the stack it just built. That is worse than no
           #  smoke suite, because it is indistinguishable from success at a glance.
           MCS_SMOKE_REQUIRED: 1
+          #  TEMPORARY, THROWAWAY BRANCH -- DO NOT MERGE. Points the API origin at a port
+          #  nothing is listening on, to make the smoke step fail on purpose. Two things need
+          #  proving and neither can be proved by a passing run: that the log dump below
+          #  actually fires on failure and lands before teardown, and that MCS_SMOKE_REQUIRED=1
+          #  turns an unreachable stack into a failure rather than a skip.
+          MCS_SMOKE_API_URL: http://localhost:8099
           #  MCS_SMOKE_BASE_URL and MCS_SMOKE_API_URL are deliberately left unset. The suite
           #  defaults to 8080 and 8081, and the bootstrap script writes 8080 and 8081; setting
           #  them here would pin CI to values of its own and let it stay green straight through a
