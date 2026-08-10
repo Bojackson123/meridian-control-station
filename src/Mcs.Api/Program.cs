@@ -115,19 +115,29 @@ try
     app.UseSerilogRequestLogging(options =>
     {
         options.GetLevel = static (httpContext, _, exception) =>
-            exception is not null || httpContext.Response.StatusCode >= 500
-                ? LogEventLevel.Error
-                : httpContext.Request.Path.StartsWithSegments(HealthEndpoints.LivenessPath)
-                    // Probes hit these every few seconds forever. At Information they are most of
-                    // the log by volume, and a log nobody scrolls through is a log nobody reads. A
-                    // failing probe still surfaces: the 503 takes the Error branch above.
-                    ? LogEventLevel.Debug
-                    : httpContext.Request.Path.StartsWithSegments(TelemetryEndpoints.StreamPath)
-                    // The SSE stream is a long-lived connection, so its completed line lands
-                    // minutes late with an alarming elapsed time. Debug rather than filtered out:
-                    // still there when a dropped stream is what you are chasing.
-                    ? LogEventLevel.Debug
-                    : LogEventLevel.Information;
+            // A client that went away is not a fault, and it has to be asked about before the
+            // branch below rather than after it. Closing or reloading a tab is how the SSE stream
+            // ends every single time: the request token fires, the store throws out of the
+            // subscription in order to unregister it, and that exception arrives here. Ordered the
+            // other way it logged a stack trace and a 500 the client never saw — the response had
+            // already gone out as a 200 — on every page refresh, and the stream's own Debug case
+            // further down could never be reached for the one endpoint it was written for.
+            exception is OperationCanceledException
+                && httpContext.RequestAborted.IsCancellationRequested
+                ? LogEventLevel.Debug
+                : exception is not null || httpContext.Response.StatusCode >= 500
+                    ? LogEventLevel.Error
+                    : httpContext.Request.Path.StartsWithSegments(HealthEndpoints.LivenessPath)
+                        // Probes hit these every few seconds forever. At Information they are most
+                        // of the log by volume, and a log nobody scrolls through is a log nobody
+                        // reads. A failing probe still surfaces: the 503 takes the Error branch.
+                        ? LogEventLevel.Debug
+                        : httpContext.Request.Path.StartsWithSegments(TelemetryEndpoints.StreamPath)
+                        // The SSE stream is a long-lived connection, so its completed line lands
+                        // minutes late with an alarming elapsed time. Debug rather than filtered
+                        // out: still there when a dropped stream is what you are chasing.
+                        ? LogEventLevel.Debug
+                        : LogEventLevel.Information;
 
         options.EnrichDiagnosticContext = static (diagnosticContext, httpContext) =>
         {
