@@ -1,0 +1,1159 @@
+<meta charset="utf-8">
+<title>Console design — the state language at twelve</title>
+
+<!--
+  Scaffolding for the console design day, not a deliverable. Its whole job is to answer the
+  one question ASCII cannot: does the state language read at twelve vehicles, in the real
+  palette, on the real ground. The committed artifact is docs/notes/console-design.md.
+
+  Deliberately single-theme. The subject IS a dark console; rendering the palette on a white
+  page would make every contrast judgement on it worthless.
+-->
+
+<style>
+  :root {
+    /* The console's own palette, verbatim. Nothing here is invented for the mockup. */
+    --map:        #080c12;  /* map background — the ground every marker ratio is measured against */
+    --panel:      #0d131b;  /* panel surface, 1.05:1 off the map */
+    --ink-bright: #eef3f8;  /* live  · 17.6:1 */
+    --ink:        #93a6b8;  /* resting panel values · 7.8:1 */
+    --ink-dim:    #6f8294;  /* lost, units, labels · 4.9:1 */
+    --amber:      #e8a33d;  /* stale · 9.1:1 */
+    --critical:   #ff6b6b;  /* warning · 7.1:1 */
+    --rule:       #2c3d4e;  /* the graticule's minor line — structure, never data */
+    --rule-lit:   #3f566d;  /* the graticule's major line */
+
+    /* Page chrome sits below the console so the console frame is the brightest surface. */
+    --page:       #05080c;
+    --page-ink:   #8296a8;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--page-ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1360px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  /* ── page chrome ─────────────────────────────────────────────────────────── */
+
+  header { border-bottom: 1px solid var(--rule); padding-bottom: 28px; }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink-bright);
+    margin: 0 0 8px;
+  }
+
+  .lede { margin: 0; max-width: 62ch; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  .meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin: 0 0 14px;
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin: 0 0 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+
+  h2::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+
+  section { margin-top: 64px; }
+  .asks { margin: 0 0 24px; max-width: 68ch; font-size: 14px; }
+  .asks code { font-family: var(--mono); font-size: 0.92em; color: var(--ink); }
+
+  /* ── controls ────────────────────────────────────────────────────────────── */
+
+  .controls {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 20px;
+    margin: 28px 0 0;
+    padding: 12px 0;
+    background: var(--page);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .ctl-group { display: flex; align-items: center; gap: 8px; }
+
+  .ctl-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  button {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 6px 11px;
+    cursor: pointer;
+    transition: color 120ms, border-color 120ms;
+  }
+
+  button:hover { color: var(--ink-bright); border-color: var(--rule-lit); }
+  button[aria-pressed="true"] { color: var(--map); background: var(--ink); border-color: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  /* ── the console mock ────────────────────────────────────────────────────── */
+
+  .stage { overflow-x: auto; padding-bottom: 8px; }
+
+  .console {
+    width: 1280px;
+    height: 800px;
+    display: grid;
+    grid-template-rows: 48px 1fr;
+    background: var(--map);
+    border: 1px solid var(--rule-lit);
+    font-family: var(--mono);
+    /* The viewport this layout is specified against. Seeing it at any other size is
+       seeing a different design. */
+  }
+
+  .gray { filter: grayscale(1); }
+  .deut { filter: url(#deuteranopia); }
+
+  /* alert bar — outside both the map and the panel, which is the whole point of it */
+  .alertbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--panel);
+  }
+
+  .unack {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-dim);
+  }
+
+  .alertbar[data-unack="0"] .unack-mark { visibility: hidden; }
+  .alertbar:not([data-unack="0"]) .unack { color: var(--ink-bright); }
+
+  .unack-mark { color: var(--critical); font-size: 15px; line-height: 1; }
+
+  .alert-latest {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--ink);
+  }
+
+  .alertbar[data-unack="0"] .alert-latest { visibility: hidden; }
+
+  .sev {
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    padding: 2px 7px;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+  }
+  .sev.warning { color: var(--critical); }
+  .sev.caution { color: var(--amber); }
+
+  .ack {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 4px 9px;
+  }
+
+  .body { display: grid; grid-template-columns: 1fr 380px; min-height: 0; }
+
+  /* map — the grid is on the ground, so it is spaced in metres: 0.75 px/m puts a minor line
+     every 100 m and a major every 500 m, which is what the scale bar measures. */
+  .map {
+    position: relative;
+    overflow: hidden;
+    background:
+      repeating-linear-gradient(to right,  var(--rule) 0 1px, transparent 1px 75px),
+      repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 75px),
+      repeating-linear-gradient(to right,  var(--rule-lit) 0 1px, transparent 1px 375px),
+      repeating-linear-gradient(to bottom, var(--rule-lit) 0 1px, transparent 1px 375px),
+      var(--map);
+  }
+
+  .routes {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .marker { position: absolute; transform: translate(-50%, -50%); }
+  .marker svg { display: block; overflow: visible; }
+
+  /* Z-order by confidence: a live vehicle is never hidden behind the ring of a dead one. */
+  .marker[data-state="lost"]  { z-index: 1; }
+  .marker[data-state="stale"] { z-index: 2; }
+  .marker[data-state="live"]  { z-index: 3; }
+
+  /* Chips on the map are DOM, not MapLibre text-fields — the basemap has no `glyphs` key
+     and must never grow one, so a labelled symbol layer would reach off-origin. */
+  .map-chip {
+    position: absolute;
+    left: 20px;
+    top: -8px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--map);
+    border: 1px solid currentColor;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scalebar {
+    position: absolute;
+    left: 16px;
+    bottom: 14px;
+    font-size: 10px;
+    color: var(--ink-dim);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .scalebar i {
+    display: block;
+    width: 75px;   /* 100 m at 0.75 px/m */
+    height: 6px;
+    border: 1px solid var(--ink-dim);
+    border-top: 0;
+  }
+
+  /* fleet panel */
+  .panel {
+    background: var(--panel);
+    border-left: 1px solid var(--rule);
+    display: grid;
+    grid-template-rows: 28px auto 1fr auto;
+    min-height: 0;
+  }
+
+  .panel-hd {
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--ink-dim);
+    border-bottom: 1px solid var(--rule);
+  }
+  .panel-hd b { color: var(--ink); font-weight: 600; }
+  .panel-hd span { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+  /* Column labels once, at the top — rather than a unit repeated twelve times. */
+  .col-hd {
+    display: grid;
+    grid-template-columns: 26px 118px 56px 44px 40px;
+    gap: 8px;
+    padding: 6px 10px 5px;
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    color: var(--ink-dim);
+    border-bottom: 1px solid var(--rule);
+  }
+  .col-hd i { font-style: normal; }
+
+  .rows { align-self: start; }
+
+  .row {
+    height: 52px;
+    padding: 6px 10px 0;
+    border-bottom: 1px solid #131c26;
+    display: grid;
+    grid-template-rows: 20px 1fr;
+    /* Fixed height, twelve of them, no scroll — and the abort block counts. The first pass
+       used 56 px and forgot it entirely, which put the console 25 px over its own minimum
+       viewport and clipped the one control that is never allowed to be unreachable:
+       48 + 28 + 21 + (12 x 52 = 624) + 56 = 777 of 800. */
+  }
+
+  .r1 {
+    display: grid;
+    grid-template-columns: 26px 1fr 62px 40px 14px;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .badge { width: 18px; height: 18px; overflow: visible; }
+
+  .vid { font-size: 13px; font-weight: 600; color: var(--ink); letter-spacing: 0.02em; }
+  .row[data-state="live"]  .vid { color: var(--ink); }
+  .row[data-state="stale"] .vid { color: var(--amber); }
+  .row[data-state="lost"]  .vid { color: var(--ink-dim); }
+
+  /* The slot is reserved whether or not a chip is in it. That is what stops the row
+     shifting at the moment a vehicle goes quiet — the worst possible moment to shift. */
+  .slot { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .chip {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+  }
+  .row[data-state="stale"] .chip { color: var(--amber); }
+  .row[data-state="lost"]  .chip { color: var(--ink-dim); }
+
+  .batt {
+    text-align: right;
+    font-size: 12px;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .row[data-state="lost"] .batt { color: var(--ink-dim); }
+
+  .link { font-size: 11px; text-align: center; }
+  .link[data-link="Healthy"]  { color: var(--ink); }
+  .link[data-link="Degraded"] { color: var(--amber); }
+  .link[data-link="Lost"]     { color: var(--ink-dim); }
+
+  /* Resting values sit low-contrast: the eye is pulled by luminance, not by reading. */
+  .r2 {
+    display: grid;
+    grid-template-columns: 26px 118px 56px 44px 40px;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--ink-dim);
+    font-variant-numeric: tabular-nums;
+    align-items: center;
+  }
+  .r2 i { font-style: normal; }
+  .r2 .pos { grid-column: 2; }
+  .row[data-state="lost"] .r2 { opacity: 0.72; }
+
+  .abort-wrap {
+    padding: 9px 10px 10px;
+    border-top: 1px solid var(--rule);
+  }
+
+  /* Fixed position, nothing may cover it. The chord is a shortcut to a control that is
+     already reachable, not a substitute for one. */
+  .abort {
+    width: 100%;
+    padding: 9px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    color: var(--critical);
+    background: transparent;
+    border: 1px solid var(--critical);
+    border-radius: 3px;
+  }
+  .abort:hover { color: var(--map); background: var(--critical); border-color: var(--critical); }
+  .abort small {
+    display: block;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    font-size: 10px;
+    opacity: 0.75;
+    margin-top: 2px;
+  }
+
+  /* ── the isolated specimens ──────────────────────────────────────────────── */
+
+  .specimens {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    background: var(--map);
+    border: 1px solid var(--rule);
+  }
+
+  .spec { padding: 26px 22px 22px; border-left: 1px solid var(--rule); }
+  .spec:first-child { border-left: 0; }
+  .spec-art { height: 84px; display: flex; align-items: center; gap: 12px; }
+  .spec h3 {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 600;
+    margin: 12px 0 10px;
+  }
+  .spec ul { margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-dim); }
+  .spec li { padding: 1px 0; }
+  .spec .ratio {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink);
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid var(--rule);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── contrast ladder ─────────────────────────────────────────────────────── */
+
+  .ladder {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: var(--map);
+    border: 1px solid var(--rule);
+  }
+  .ladder th {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    text-align: left;
+    font-weight: 600;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .ladder th.n, .ladder td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .ladder td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #131c26;
+    font-family: var(--mono);
+    color: var(--ink);
+  }
+  .ladder tr:last-child td { border-bottom: 0; }
+  .ladder .sw {
+    display: inline-block;
+    width: 34px;
+    height: 13px;
+    border-radius: 2px;
+    vertical-align: -2px;
+    margin-right: 11px;
+  }
+  .ladder .bar { display: block; height: 5px; border-radius: 2px; }
+  .ladder td.role { color: var(--ink-dim); font-family: var(--sans); }
+  .ladder tr.grid td { color: var(--ink-dim); }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-size: 13px;
+    color: var(--ink-dim);
+    max-width: 68ch;
+  }
+  footer code { font-family: var(--mono); color: var(--ink); }
+
+  /* ?bare — the console alone, for the still in the note. See BARE in the script. */
+  body.bare {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: var(--map);
+  }
+  body.bare .console { border: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="deuteranopia" color-interpolation-filters="linearRGB">
+    <!-- Viénot approximation. Close enough to answer "does the ladder hold", which is all
+         it is being asked. -->
+    <feColorMatrix type="matrix" values="0.625 0.375 0 0 0
+                                         0.700 0.300 0 0 0
+                                         0     0.300 0.7 0 0
+                                         0     0     0   1 0"/>
+  </filter>
+</svg>
+
+<div class="wrap">
+
+  <header>
+    <p class="meta">Working mockup · 2026-08-11</p>
+    <h1>The state language, at twelve</h1>
+    <p class="lede">
+      The working drawing for <strong>docs/notes/console-design.md</strong>, kept beside it. It
+      answers the one question a written note cannot: <strong>does this read at twelve
+      vehicles</strong>, in the real palette, on the real ground, with the ages actually
+      ticking. Where this page and the note disagree, the note is wrong.
+    </p>
+
+    <div class="controls">
+      <div class="ctl-group">
+        <span class="ctl-label">Link</span>
+        <button id="cut" type="button" aria-pressed="false">Cut UAV-03</button>
+      </div>
+      <div class="ctl-group">
+        <span class="ctl-label">Mode</span>
+        <button id="rtl" type="button" aria-pressed="false">Recall UAV-09</button>
+      </div>
+      <div class="ctl-group">
+        <button id="restore" type="button">Reset fleet</button>
+      </div>
+      <div class="ctl-group">
+        <span class="ctl-label">Alerts</span>
+        <button id="alerts" type="button" aria-pressed="false">2 unacknowledged</button>
+      </div>
+      <div class="ctl-group">
+        <span class="ctl-label">Vision</span>
+        <button class="vis" type="button" data-mode="none" aria-pressed="true">Normal</button>
+        <button class="vis" type="button" data-mode="gray" aria-pressed="false">Greyscale</button>
+        <button class="vis" type="button" data-mode="deut" aria-pressed="false">Deuteranopia</button>
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <h2>1 · The console at 1280 &times; 800</h2>
+    <p class="asks">
+      The minimum supported viewport, at size. Twelve rows fit without scrolling — that is the
+      constraint the whole layout is built around, because a panel that scrolls at twelve is a
+      panel where the vehicle needing attention is off screen.
+    </p>
+    <p class="asks">
+      The fleet flies the circuit the station's own feed flies: a 400 m circle about the
+      Huntsville origin, one lap in 120 s, twelve vehicles evenly spaced, all at 20.9 m/s.
+      Every heading is tangent to that circle, so if a dart is not lying along the route line
+      the arithmetic is wrong and you can see it without reading a number. UAV-07 is lost from
+      the start; cut UAV-03's link to watch one go stale, and recall UAV-09 to see the
+      return-to-launch state the console does not build yet.
+    </p>
+
+    <div class="stage">
+      <div class="console" id="console">
+
+        <div class="alertbar" id="alertbar" data-unack="0">
+          <span class="unack">
+            <span class="unack-mark">&#9650;</span>
+            <span id="unack-text">0 unacknowledged</span>
+          </span>
+          <span class="alert-latest">
+            <span class="sev warning">WARNING</span>
+            <span>Geofence breach &middot; UAV-07</span>
+            <button class="ack" type="button">ACKNOWLEDGE</button>
+          </span>
+        </div>
+
+        <div class="body">
+          <div class="map" id="map">
+            <!-- The route layer, beneath the vehicle layer. Drawn here because leaving the
+                 slot is the one thing the console has to do today for conflict rendering not
+                 to be a re-layout later. -->
+            <svg class="routes" aria-hidden="true">
+              <circle id="circuit" fill="none" stroke="#6f8294" stroke-width="1"
+                      stroke-dasharray="2 6"/>
+            </svg>
+            <div class="scalebar"><i></i><span>100 m</span></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-hd"><b>FLEET</b><span id="rate">12 &middot; 1 Hz</span></div>
+            <div class="col-hd">
+              <i></i><i>POSITION</i><i>ALT</i><i>SPD</i><i>HDG</i>
+            </div>
+            <div class="rows" id="rows"></div>
+            <div class="abort-wrap">
+              <button class="abort" type="button">
+                ABORT
+                <small>always here, never covered</small>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · Four states, four pairs of channels</h2>
+    <p class="asks">
+      Each state differs from the others in at least two channels, and never in colour alone.
+      Switch the vision control above to greyscale — every one of these must still separate,
+      because that is what a screenshot pasted into a report looks like.
+    </p>
+
+    <div class="specimens" id="specimens">
+      <div class="spec">
+        <div class="spec-art">
+          <svg width="60" height="60" viewBox="0 0 60 60" aria-label="live marker">
+            <path d="M 30,3.75 L 50,52.5 L 30,41.25 L 10,52.5 Z" fill="#eef3f8"
+                  stroke="#080c12" stroke-width="3.75" stroke-linejoin="round"
+                  paint-order="stroke fill"/>
+          </svg>
+        </div>
+        <h3 style="color:#eef3f8">live</h3>
+        <ul>
+          <li>solid fill</li>
+          <li>nose on heading</li>
+          <li>no chip at all</li>
+        </ul>
+        <div class="ratio">17.6:1 &middot; L 0.891</div>
+      </div>
+
+      <div class="spec">
+        <div class="spec-art">
+          <svg width="60" height="60" viewBox="0 0 60 60" aria-label="stale marker">
+            <path d="M 30,3.75 L 50,52.5 L 30,41.25 L 10,52.5 Z" fill="#080c12"
+                  stroke="#e8a33d" stroke-width="3.5" stroke-linejoin="round"/>
+          </svg>
+          <span class="chip" style="color:#e8a33d">7s</span>
+        </div>
+        <h3 style="color:#e8a33d">stale</h3>
+        <ul>
+          <li>hollow</li>
+          <li>heading frozen</li>
+          <li>age chip appears</li>
+        </ul>
+        <div class="ratio">9.1:1 &middot; L 0.437</div>
+      </div>
+
+      <div class="spec">
+        <div class="spec-art">
+          <svg width="60" height="60" viewBox="0 0 60 60" aria-label="lost marker">
+            <circle cx="30" cy="30" r="21" fill="#080c12" stroke="#6f8294"
+                    stroke-width="3.5" stroke-dasharray="7 5.5" stroke-linecap="round"/>
+          </svg>
+          <span class="chip" style="color:#6f8294">4m 10s</span>
+        </div>
+        <h3 style="color:#6f8294">lost</h3>
+        <ul>
+          <li>dashed ring</li>
+          <li>no heading at all</li>
+          <li>age chip</li>
+        </ul>
+        <div class="ratio">4.9:1 &middot; L 0.215</div>
+      </div>
+
+      <div class="spec">
+        <div class="spec-art">
+          <svg width="60" height="60" viewBox="0 0 60 60" aria-label="return to launch marker">
+            <circle cx="30" cy="30" r="27" fill="none" stroke="#eef3f8" stroke-width="2.5"/>
+            <g transform="translate(30,30) scale(0.72) translate(-30,-30)">
+              <path d="M 30,3.75 L 50,52.5 L 30,41.25 L 10,52.5 Z" fill="#eef3f8"
+                    stroke="#080c12" stroke-width="3.75" stroke-linejoin="round"
+                    paint-order="stroke fill"/>
+            </g>
+          </svg>
+          <span class="chip" style="color:#080c12;background:#eef3f8;border-color:#eef3f8">RTL</span>
+        </div>
+        <h3 style="color:#eef3f8">RTL</h3>
+        <ul>
+          <li>solid, ringed</li>
+          <li>nose on heading</li>
+          <li>designed, not built</li>
+        </ul>
+        <div class="ratio">live's fill &middot; reporting</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 · Luminance does the work</h2>
+    <p class="asks">
+      Each state is roughly half the luminance of the one above it — 0.49&times;, then
+      0.49&times;. That fell out of choosing the hues rather than being imposed on them, and it
+      is what makes the language survive greyscale, colour blindness and a bad monitor at once:
+      in every one of those the hue degrades and the brightness does not. Luminance encodes
+      <em>confidence in the data</em>, not severity — which is why the lost vehicle is the
+      dimmest thing on the map even when it is the most alarming.
+    </p>
+
+    <table class="ladder">
+      <thead>
+        <tr>
+          <th>Token</th>
+          <th class="role" style="font-family:var(--mono)">Role</th>
+          <th class="n">vs&nbsp;map</th>
+          <th class="n">Luminance</th>
+          <th style="width:34%">Relative brightness</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="sw" style="background:#eef3f8"></span>#eef3f8</td>
+          <td class="role">live marker, alert count, brightened conflict segments</td>
+          <td class="n">17.6:1</td>
+          <td class="n">0.891</td>
+          <td><i class="bar" style="background:#eef3f8;width:100%"></i></td>
+        </tr>
+        <tr>
+          <td><span class="sw" style="background:#e8a33d"></span>#e8a33d</td>
+          <td class="role">stale marker and chip, CAUTION</td>
+          <td class="n">9.1:1</td>
+          <td class="n">0.437</td>
+          <td><i class="bar" style="background:#e8a33d;width:49.1%"></i></td>
+        </tr>
+        <tr>
+          <td><span class="sw" style="background:#93a6b8"></span>#93a6b8</td>
+          <td class="role">resting panel values</td>
+          <td class="n">7.8:1</td>
+          <td class="n">0.369</td>
+          <td><i class="bar" style="background:#93a6b8;width:41.5%"></i></td>
+        </tr>
+        <tr>
+          <td><span class="sw" style="background:#ff6b6b"></span>#ff6b6b</td>
+          <td class="role">WARNING &mdash; always with the word, never the colour alone</td>
+          <td class="n">7.1:1</td>
+          <td class="n">0.328</td>
+          <td><i class="bar" style="background:#ff6b6b;width:36.9%"></i></td>
+        </tr>
+        <tr>
+          <td><span class="sw" style="background:#6f8294"></span>#6f8294</td>
+          <td class="role">lost marker, units, column labels</td>
+          <td class="n">4.9:1</td>
+          <td class="n">0.215</td>
+          <td><i class="bar" style="background:#6f8294;width:24.1%"></i></td>
+        </tr>
+        <tr class="grid">
+          <td><span class="sw" style="background:#3f566d"></span>#3f566d</td>
+          <td class="role">graticule, major &mdash; structure, never data</td>
+          <td class="n">2.6:1</td>
+          <td class="n">0.088</td>
+          <td><i class="bar" style="background:#3f566d;width:9.9%"></i></td>
+        </tr>
+        <tr class="grid">
+          <td><span class="sw" style="background:#2c3d4e"></span>#2c3d4e</td>
+          <td class="role">graticule, minor</td>
+          <td class="n">1.8:1</td>
+          <td class="n">0.044</td>
+          <td><i class="bar" style="background:#2c3d4e;width:5%"></i></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    <p>
+      A drawing, not a component. Nothing here is imported by the console and nothing here is a
+      design system &mdash; when the states are built they are built from the note, in the
+      console's own stack, and this page stops being the reference.
+    </p>
+    <p>
+      It reaches no origin but its own, same as the thing it describes: no webfont, no CDN,
+      every mark drawn in place. Open it with <code>file://</code> or any static server; it has
+      no build step. Its two extracted specimens live beside it as
+      <code>states.svg</code> and <code>age-chip.svg</code>.
+    </p>
+    <p>
+      The circuit, speed and origin mirror <code>CircularCourse</code> and the
+      <code>FakeFeed</code> defaults. If those change, this changes.
+    </p>
+  </footer>
+
+</div>
+
+<script>
+  //  ── The circuit ──────────────────────────────────────────────────────────────────────
+  //
+  //  These are not invented for the drawing. They mirror CircularCourse and the FakeFeed
+  //  defaults the station actually ships with, because a mockup flying a different pattern
+  //  from the system is a mockup that answers a question nobody asked. Keep them in step.
+  //
+  //  The one deliberate divergence is the battery, below.
+
+  //  ?bare strips the page down to the console alone, scaled to fill the window, with one
+  //  vehicle already stale, one lost and one recalled. It is how console-at-twelve.png beside
+  //  this file was taken, and the only reason it exists: a still in the note that cannot be
+  //  regenerated is a still that quietly stops matching the design it illustrates.
+  const BARE = new URLSearchParams(location.search).has('bare');
+
+  const ORIGIN_LAT = 34.7304;        //  Huntsville
+  const ORIGIN_LON = -86.5861;
+  const RADIUS_M = 400;
+  const PERIOD_S = 120;
+  const ALT_MSL = 300;
+  const VEHICLES = 12;
+
+  //  Circumference over period, so the speed agrees with the positions instead of being
+  //  asserted next to them. 20.9 m/s.
+  const SPEED_MPS = (2 * Math.PI * RADIUS_M) / PERIOD_S;
+
+  const M_PER_DEG_LAT = 111320;
+  const M_PER_DEG_LON = M_PER_DEG_LAT * Math.cos((ORIGIN_LAT * Math.PI) / 180);
+
+  //  Pixels per metre. 0.75 puts the 400 m circuit at a 300 px radius, which fits the map
+  //  pane at the minimum viewport with room for the markers' chips.
+  const PX_PER_M = 0.75;
+
+  const STALE_S = 3;    //  MCS-002
+  const LOST_S = 30;    //  illustrative only — the real second threshold is sourced elsewhere
+
+  const norm360 = (d) => ((d % 360) + 360) % 360;
+
+  /**
+   * Where a vehicle is, and which way it is pointing, at one instant.
+   *
+   * Bearing zero is due north of the centre and increases clockwise, so north takes the
+   * cosine and east the sine — the transpose of the usual convention, and the same one
+   * CircularCourse uses. Getting it the other way round flies the circuit anticlockwise with
+   * a heading 180 degrees out, and neither error is visible on its own.
+   */
+  function courseAt(phase, seconds) {
+    const bearing = 2 * Math.PI * (seconds / PERIOD_S + phase);
+    return {
+      north: RADIUS_M * Math.cos(bearing),
+      east: RADIUS_M * Math.sin(bearing),
+      //  Travelling clockwise, the tangent is a quarter turn right of the bearing.
+      heading: norm360((bearing * 180) / Math.PI + 90),
+    };
+  }
+
+  const vehicles = Array.from({ length: VEHICLES }, (_, i) => ({
+    id: `UAV-${String(i + 1).padStart(2, '0')}`,
+
+    //  Evenly spaced around the lap, so twelve vehicles are a ring rather than a stack of
+    //  markers on one pixel.
+    phase: i / VEHICLES,
+
+    //  The real feed drains every battery in lockstep from a shared start, so all twelve read
+    //  the same number. That is honest to the feed and useless to a drawing: the column has to
+    //  be legible against varied values, which is what an actual fleet gives it.
+    battery: 92 - i * 2.4,
+
+    silentSince: null,   //  station time when the link went quiet; null while reporting
+    rtlSince: null,      //  station time when recall was commanded
+  }));
+
+  //  One lost from the outset, so the two failure states can be compared side by side rather
+  //  than one after the other.
+  vehicles[6].silentSince = -252;
+
+  if (BARE) {
+    //  Negative timestamps: these are already this old at t = 0, so the still shows the whole
+    //  language at once instead of needing eleven seconds of warm-up before the shutter.
+    vehicles[2].silentSince = -12;   //  stale, chip reading 12s
+    vehicles[8].rtlSince = -9;       //  recalled, about halfway home
+  }
+
+  //  ── Rendering ────────────────────────────────────────────────────────────────────────
+
+  const mapEl = document.getElementById('map');
+  const rowsEl = document.getElementById('rows');
+  const circuitEl = document.getElementById('circuit');
+
+  const DART = 'M 30,3.75 L 50,52.5 L 30,41.25 L 10,52.5 Z';
+
+  /** Three magnitudes and one cap. The slot never widens, so the row never moves. */
+  function ageText(s) {
+    s = Math.floor(s);
+    if (s < 60) return `${s}s`;
+    if (s < 600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    return '1h+';
+  }
+
+  /**
+   * Currency first, mode second.
+   *
+   * A recalled vehicle whose link then dies is *stale*, not RTL: what the marker's fill
+   * asserts is that the data is current, and a mode flag must never be able to override that.
+   * RTL rides alongside as the ring, which is why it was given a channel that does not
+   * compete with the fill.
+   */
+  function stateOf(v, t) {
+    if (v.silentSince === null) return { state: 'live', age: 0 };
+    const age = t - v.silentSince;
+    if (age < STALE_S) return { state: 'live', age };
+    return { state: age < LOST_S ? 'stale' : 'lost', age };
+  }
+
+  function badgeSvg(state, rtl) {
+    const ring = rtl
+      ? '<circle cx="30" cy="30" r="27" fill="none" stroke="#eef3f8" stroke-width="4"/>'
+      : '';
+    const dart = rtl
+      ? `<g transform="translate(30,30) scale(0.66) translate(-30,-30)">
+           <path d="${DART}" fill="#eef3f8"/></g>`
+      : `<path d="${DART}" fill="#93a6b8"/>`;
+
+    if (state === 'lost') {
+      return `<svg class="badge" viewBox="0 0 60 60" aria-hidden="true">${ring}<circle cx="30"
+        cy="30" r="21" fill="none" stroke="#6f8294" stroke-width="5"
+        stroke-dasharray="7 5.5"/></svg>`;
+    }
+    if (state === 'stale') {
+      return `<svg class="badge" viewBox="0 0 60 60" aria-hidden="true">${ring}<path d="${DART}"
+        fill="none" stroke="#e8a33d" stroke-width="5" stroke-linejoin="round"/></svg>`;
+    }
+    return `<svg class="badge" viewBox="0 0 60 60" aria-hidden="true">${ring}${dart}</svg>`;
+  }
+
+  function markerArt(state, heading, rtl) {
+    //  Drawn around the dart rather than beside it: a badge at this size is about ten pixels
+    //  across and its glyph about four, which reads as a smudge. Enclosure survives.
+    const ring = rtl
+      ? '<circle cx="30" cy="30" r="27" fill="none" stroke="#eef3f8" stroke-width="3.5"/>'
+      : '';
+
+    if (state === 'lost') {
+      //  No heading at all. The station does not know which way this one points, and a
+      //  confident nose on a dead track is the failure the whole language exists to prevent.
+      return `${ring}<circle cx="30" cy="30" r="21" fill="#080c12" stroke="#6f8294"
+              stroke-width="4" stroke-dasharray="7 5.5" stroke-linecap="round"/>`;
+    }
+
+    const scale = rtl ? 0.66 : 1;
+    const inner = `<g transform="rotate(${heading.toFixed(1)} 30 30)
+                     translate(30,30) scale(${scale}) translate(-30,-30)">`;
+
+    if (state === 'stale') {
+      return `${ring}${inner}<path d="${DART}" fill="#080c12" stroke="#e8a33d"
+              stroke-width="${4 / scale}" stroke-linejoin="round"/></g>`;
+    }
+    return `${ring}${inner}<path d="${DART}" fill="#eef3f8" stroke="#080c12"
+            stroke-width="${4 / scale}" stroke-linejoin="round" paint-order="stroke fill"/></g>`;
+  }
+
+  //  Built once; only the volatile text and transforms are touched per frame. Rebuilding
+  //  twelve rows a second is how a console starts dropping frames at the density where it
+  //  matters most.
+  rowsEl.innerHTML = vehicles.map((v, i) => `
+    <div class="row" data-state="" data-i="${i}">
+      <div class="r1">
+        <span class="bd"></span>
+        <span class="vid">${v.id}</span>
+        <span class="slot"><span class="chip" hidden></span></span>
+        <span class="batt"></span>
+        <span class="link" data-link="Healthy">&#9679;</span>
+      </div>
+      <div class="r2">
+        <i></i><i class="pos"></i><i class="alt"></i><i class="spd"></i><i class="hdg"></i>
+      </div>
+    </div>`).join('');
+
+  mapEl.insertAdjacentHTML('beforeend', vehicles.map((v, i) => `
+    <div class="marker" data-i="${i}" data-state="">
+      <svg width="26" height="26" viewBox="0 0 60 60" aria-hidden="true"><g class="art"></g></svg>
+      <span class="map-chip" hidden></span>
+    </div>`).join(''));
+
+  const rowEls = [...rowsEl.querySelectorAll('.row')];
+  const markerEls = [...mapEl.querySelectorAll('.marker')];
+
+  let t = 0;
+  const started = performance.now();
+
+  //  Capture mode pins the clock instead of running it, so the still is the same image every
+  //  time it is taken rather than whatever the page happened to be showing when the shutter
+  //  went. At zero, UAV-01 sits due north of the centre on a heading of 090 -- the one
+  //  position in the lap you can check by eye.
+  const BARE_T = 0;
+
+  function tick() {
+    t = BARE ? BARE_T : (performance.now() - started) / 1000;
+
+    const w = mapEl.clientWidth;
+    const h = mapEl.clientHeight;
+    const cx = w / 2;
+    const cy = h / 2;
+
+    circuitEl.setAttribute('cx', cx);
+    circuitEl.setAttribute('cy', cy);
+    circuitEl.setAttribute('r', RADIUS_M * PX_PER_M);
+
+    vehicles.forEach((v, i) => {
+      const { state, age } = stateOf(v, t);
+      const rtl = v.rtlSince !== null;
+
+      let north;
+      let east;
+      let heading;
+      let speed = SPEED_MPS;
+
+      //  A stale or lost vehicle is frozen where it was last heard. Animating it onward would
+      //  be the console inventing data, which is the thing it must never do.
+      const asOf = v.silentSince === null ? t : v.silentSince;
+
+      if (rtl) {
+        //  Straight back to the launch point at cruise, leaving the circuit from wherever the
+        //  recall caught it.
+        const at = courseAt(v.phase, v.rtlSince);
+        const distance = Math.hypot(at.north, at.east);
+        const flown = Math.min(distance, SPEED_MPS * Math.max(0, asOf - v.rtlSince));
+        const remaining = (distance - flown) / distance;
+
+        north = at.north * remaining;
+        east = at.east * remaining;
+
+        //  Bearing toward home, not the tangent — an RTL vehicle is no longer on the circuit.
+        heading = remaining > 0.001 ? norm360((Math.atan2(-east, -north) * 180) / Math.PI) : 0;
+        if (remaining <= 0.001) speed = 0;
+      } else {
+        const at = courseAt(v.phase, asOf);
+        north = at.north;
+        east = at.east;
+        heading = at.heading;
+      }
+
+      //  North is up, east is right, both at the same pixels-per-metre — a local tangent
+      //  plane, which is all a few hundred metres needs.
+      const px = cx + east * PX_PER_M;
+      const py = cy - north * PX_PER_M;
+
+      const lat = ORIGIN_LAT + north / M_PER_DEG_LAT;
+      const lon = ORIGIN_LON + east / M_PER_DEG_LON;
+
+      const row = rowEls[i];
+      const mk = markerEls[i];
+
+      //  data-state stays the plain state because the stylesheet keys off it; the composite is
+      //  only here to decide whether the badge needs redrawing this frame.
+      const key = `${state}|${rtl}`;
+
+      if (row.dataset.key !== key) {
+        row.dataset.key = key;
+        row.dataset.state = state;
+        mk.dataset.state = state;
+        row.querySelector('.bd').innerHTML = badgeSvg(state, rtl);
+
+        const link = row.querySelector('.link');
+        link.dataset.link = state === 'lost' ? 'Lost' : state === 'stale' ? 'Degraded' : 'Healthy';
+        link.innerHTML = state === 'lost' ? '&#9675;' : state === 'stale' ? '&#9680;' : '&#9679;';
+      }
+
+      row.querySelector('.batt').textContent =
+        state === 'lost' ? '??' : `${Math.round(v.battery)}%`;
+
+      //  The age owns the slot whenever there is one, because how current the data is outranks
+      //  what mode the vehicle is in. RTL keeps the ring either way.
+      const chip = row.querySelector('.chip');
+      const mapChip = mk.querySelector('.map-chip');
+      const label = state === 'live' ? (rtl ? 'RTL' : null) : ageText(age);
+
+      if (label === null) {
+        chip.hidden = true;
+        mapChip.hidden = true;
+      } else {
+        chip.hidden = false;
+        chip.textContent = label;
+        mapChip.hidden = false;
+        mapChip.textContent = label;
+        mapChip.style.color =
+          state === 'stale' ? '#e8a33d' : state === 'lost' ? '#6f8294' : '#eef3f8';
+      }
+
+      mk.querySelector('.art').innerHTML = markerArt(state, heading, rtl);
+      mk.style.left = `${px}px`;
+      mk.style.top = `${py}px`;
+
+      row.querySelector('.pos').textContent = `${lat.toFixed(4)} ${lon.toFixed(4)}`;
+      row.querySelector('.alt').textContent = `${ALT_MSL} MSL`;
+      row.querySelector('.spd').textContent = state === 'lost' ? '——' : speed.toFixed(1);
+      row.querySelector('.hdg').textContent =
+        state === 'lost' ? '———' : `${String(Math.round(heading) % 360).padStart(3, '0')}°`;
+    });
+
+    if (!BARE) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  //  ── Controls ─────────────────────────────────────────────────────────────────────────
+
+  const cutBtn = document.getElementById('cut');
+  const rtlBtn = document.getElementById('rtl');
+
+  cutBtn.addEventListener('click', () => {
+    const on = cutBtn.getAttribute('aria-pressed') === 'true';
+    cutBtn.setAttribute('aria-pressed', String(!on));
+    vehicles[2].silentSince = on ? null : t;
+  });
+
+  rtlBtn.addEventListener('click', () => {
+    const on = rtlBtn.getAttribute('aria-pressed') === 'true';
+    rtlBtn.setAttribute('aria-pressed', String(!on));
+    vehicles[8].rtlSince = on ? null : t;
+  });
+
+  document.getElementById('restore').addEventListener('click', () => {
+    vehicles.forEach((v) => {
+      v.silentSince = null;
+      v.rtlSince = null;
+    });
+    cutBtn.setAttribute('aria-pressed', 'false');
+    rtlBtn.setAttribute('aria-pressed', 'false');
+  });
+
+  const alertBtn = document.getElementById('alerts');
+  const alertBar = document.getElementById('alertbar');
+  alertBtn.addEventListener('click', () => {
+    const on = alertBtn.getAttribute('aria-pressed') === 'true';
+    alertBtn.setAttribute('aria-pressed', String(!on));
+    alertBar.dataset.unack = on ? '0' : '2';
+    document.getElementById('unack-text').textContent =
+      on ? '0 unacknowledged' : '2 unacknowledged';
+  });
+
+  const consoleEl = document.getElementById('console');
+  const specimensEl = document.getElementById('specimens');
+
+  if (BARE) {
+    //  Moved rather than cloned, so every element reference the loop already holds stays live.
+    alertBar.dataset.unack = '2';
+    document.getElementById('unack-text').textContent = '2 unacknowledged';
+
+    document.body.replaceChildren(consoleEl);
+    document.body.classList.add('bare');
+
+    //  Fit to whichever axis binds, anchored at the origin. Exactly one axis then ends up
+    //  flush with the viewport, so a screenshot can be cropped back to the console from its
+    //  own dimensions alone -- 1280 x 800 is 1.6, so an image wider than 1.6 is height-bound
+    //  and one narrower is width-bound. No measuring, and no chroma key round the edge.
+    const scale = Math.min(window.innerWidth / 1280, window.innerHeight / 800);
+    consoleEl.style.transformOrigin = '0 0';
+    consoleEl.style.transform = `scale(${scale})`;
+  }
+
+  document.querySelectorAll('.vis').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.vis').forEach((o) =>
+        o.setAttribute('aria-pressed', String(o === b)));
+      for (const el of [consoleEl, specimensEl]) {
+        el.classList.remove('gray', 'deut');
+        if (b.dataset.mode !== 'none') el.classList.add(b.dataset.mode);
+      }
+    });
+  });
+</script>

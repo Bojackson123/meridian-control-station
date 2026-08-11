@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" width="760" height="250"
+     role="img" aria-labelledby="t d"
+     font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <title id="t">The four marker states</title>
+  <desc id="d">Live: a solid near-white dart, nose on the reported heading. Stale: the same dart hollow and amber, heading frozen, with an age chip. Lost: a dashed hollow ring with no heading at all, dimmest of the four, with an age chip. RTL: a solid dart enclosed in a ring, chipped RTL.</desc>
+
+  <!-- Hand-written, not exported. The dart geometry is the one web/src/vehicles/icon.ts draws
+       at runtime, scaled 2.5x: nose north, so a zero rotation means a zero heading. Drawn on
+       the map background, so the contrast ratios quoted in the note are the ones visible here.
+
+       Every fill, stroke and font is an attribute rather than a class. A <style> block reads
+       better and is the obvious way to write this, but GitHub strips <style> out of an SVG
+       when it renders one in a document — which leaves black text on a transparent ground,
+       i.e. an illustration that silently disappears exactly where it is meant to be read. -->
+
+  <rect x="0" y="0" width="760" height="250" fill="#080c12"/>
+
+  <!-- ─── live ─────────────────────────────────────────────────────────────── -->
+  <g>
+    <g transform="translate(40,42)">
+      <path d="M 30,3.75 L 50,52.5 L 30,41.25 L 10,52.5 Z"
+            fill="#eef3f8" stroke="#080c12" stroke-width="3.75"
+            stroke-linejoin="round" paint-order="stroke fill"/>
+    </g>
+    <text x="20" y="152" font-size="15" font-weight="600" fill="#eef3f8">live</text>
+    <text x="20" y="176" font-size="12" fill="#6f8294">solid fill</text>
+    <text x="20" y="194" font-size="12" fill="#6f8294">nose on heading</text>
+    <text x="20" y="212" font-size="12" fill="#6f8294">no chip</text>
+    <text x="20" y="234" font-size="12" fill="#93a6b8">17.6:1</text>
+  </g>
+
+  <!-- ─── stale ────────────────────────────────────────────────────────────── -->
+  <g transform="translate(190,0)">
+    <line x1="0" y1="24" x2="0" y2="226" stroke="#2c3d4e" stroke-width="1"/>
+    <g transform="translate(40,42)">
+      <path d="M 30,3.75 L 50,52.5 L 30,41.25 L 10,52.5 Z"
+            fill="#080c12" stroke="#e8a33d" stroke-width="3.5" stroke-linejoin="round"/>
+    </g>
+    <g transform="translate(112,58)">
+      <rect x="0" y="0" width="46" height="22" rx="4" fill="#080c12"
+            stroke="#e8a33d" stroke-width="1.25"/>
+      <text x="23" y="15.5" text-anchor="middle" font-size="12" font-weight="600"
+            font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+            fill="#e8a33d">7s</text>
+    </g>
+    <text x="20" y="152" font-size="15" font-weight="600" fill="#e8a33d">stale</text>
+    <text x="20" y="176" font-size="12" fill="#6f8294">hollow</text>
+    <text x="20" y="194" font-size="12" fill="#6f8294">heading frozen</text>
+    <text x="20" y="212" font-size="12" fill="#6f8294">age chip</text>
+    <text x="20" y="234" font-size="12" fill="#93a6b8">9.1:1</text>
+  </g>
+
+  <!-- ─── lost ─────────────────────────────────────────────────────────────── -->
+  <g transform="translate(380,0)">
+    <line x1="0" y1="24" x2="0" y2="226" stroke="#2c3d4e" stroke-width="1"/>
+    <g transform="translate(40,42)">
+      <!-- A ring, not a dart. The station does not know which way this vehicle points, so
+           nothing here is allowed to imply that it does. -->
+      <circle cx="30" cy="30" r="21" fill="#080c12" stroke="#6f8294"
+              stroke-width="3.5" stroke-dasharray="7 5.5" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(112,58)">
+      <rect x="0" y="0" width="70" height="22" rx="4" fill="#080c12"
+            stroke="#6f8294" stroke-width="1.25"/>
+      <text x="35" y="15.5" text-anchor="middle" font-size="12" font-weight="600"
+            font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+            fill="#6f8294">4m 10s</text>
+    </g>
+    <text x="20" y="152" font-size="15" font-weight="600" fill="#6f8294">lost</text>
+    <text x="20" y="176" font-size="12" fill="#6f8294">dashed ring</text>
+    <text x="20" y="194" font-size="12" fill="#6f8294">no heading at all</text>
+    <text x="20" y="212" font-size="12" fill="#6f8294">age chip</text>
+    <text x="20" y="234" font-size="12" fill="#93a6b8">4.9:1</text>
+  </g>
+
+  <!-- ─── RTL ──────────────────────────────────────────────────────────────── -->
+  <g transform="translate(570,0)">
+    <line x1="0" y1="24" x2="0" y2="226" stroke="#2c3d4e" stroke-width="1"/>
+    <g transform="translate(40,42)">
+      <!-- An enclosing ring, not a badge glyph. The first draft put a little return-arrow
+           badge at the dart's shoulder; at the size a marker actually renders it was about
+           four pixels across and read as a smudge. Enclosure survives any size. -->
+      <circle cx="30" cy="30" r="27" fill="none" stroke="#eef3f8" stroke-width="2.5"/>
+      <!-- Solid, because an RTL vehicle is reporting normally. Solidity means the data is
+           current; it has never meant that nothing is wrong. -->
+      <g transform="translate(30,30) scale(0.72) translate(-30,-30)">
+        <path d="M 30,3.75 L 50,52.5 L 30,41.25 L 10,52.5 Z"
+              fill="#eef3f8" stroke="#080c12" stroke-width="3.75"
+              stroke-linejoin="round" paint-order="stroke fill"/>
+      </g>
+    </g>
+    <g transform="translate(112,58)">
+      <rect x="0" y="0" width="46" height="22" rx="4" fill="#eef3f8"/>
+      <text x="23" y="15.5" text-anchor="middle" font-size="12" font-weight="600"
+            font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+            fill="#080c12">RTL</text>
+    </g>
+    <text x="20" y="152" font-size="15" font-weight="600" fill="#eef3f8">RTL</text>
+    <text x="20" y="176" font-size="12" fill="#6f8294">solid, ringed</text>
+    <text x="20" y="194" font-size="12" fill="#6f8294">nose on heading</text>
+    <text x="20" y="212" font-size="12" fill="#6f8294">RTL chip</text>
+    <text x="20" y="234" font-size="12" fill="#93a6b8">designed, not built</text>
+  </g>
+</svg>
