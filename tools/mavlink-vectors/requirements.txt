@@ -1,0 +1,14 @@
+# Pinned exactly, and not to the newest release, for two separate reasons.
+#
+# Pinned at all: the fixture beside this script is the reference the framing codec is tested
+# against, and "rerun the generator" is only a reproduction instruction if it names the
+# version that produced the file. A floating dependency turns a byte-for-byte fixture into a
+# file that changes under you.
+#
+# Pinned *here*: 2.4.43 added fastcrc, a Rust extension module, as a hard dependency. It
+# publishes no wheel for win-arm64, so pip falls back to building it from source and the
+# build fails. 2.4.42 is the last release that computes its CRC in pure Python and therefore
+# the last that installs from a wheel everywhere. Nothing this script uses changed between
+# the two -- the frame layout and the CRC_EXTRA seeds are the wire format, not the library.
+# See docs/notes/stuck.md, 2026-08-11.
+pymavlink==2.4.42

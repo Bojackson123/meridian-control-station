@@ -4,4 +4,15 @@
     <ProjectReference Include="..\Mcs.Core\Mcs.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    The CRC and the message-definition table are implementation details of the codec, but they are
+    also the two places a silent, message-specific bug can hide: a wrong CRC_EXTRA seed or a wrong
+    declared length breaks exactly one message type and leaves every other one working. Testing
+    them through the public parser alone would mean inferring which of the two was wrong from a
+    frame that never appeared, so the tests reach them directly.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mcs.Adapters.Tests" />
+  </ItemGroup>
+
 </Project>

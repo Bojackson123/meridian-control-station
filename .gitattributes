@@ -11,3 +11,10 @@ Dockerfile text eol=lf
 # carriage return on the end of every value. The generated .env is never in git, but the example is
 # the file people copy from, so it checks out with the endings its consumer expects.
 .env.example text eol=lf
+
+# The MAVLink byte vectors are written by a generator that emits "\n" explicitly, and the check
+# that the generator still reproduces them is an empty `git diff` after a rerun. Left to the
+# default, this file checks out CRLF on Windows, every rerun rewrites every line, and the one
+# thing the fixture is supposed to prove -- that it can be regenerated -- fails on half the
+# machines that try it.
+tests/Mcs.Adapters.Tests/vectors/*.json text eol=lf

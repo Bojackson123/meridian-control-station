@@ -81,7 +81,9 @@ each vehicle a marker pointed along the heading it reported.
 | Persistence of domain data | not yet — the schema mechanism is proven, the tables that use it arrive with the features that define them |
 | Console state language — live / stale / lost, alerts | not yet — a dead feed shows only in the browser console |
 | Docker Compose — database, API and console, one command, offline | working |
-| MAVLink, mission planning, deconfliction, auth | not yet |
+| MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | landed after `v0.1`; **not wired to a link** — nothing yet feeds it from a socket |
+| Reading MAVLink from a real vehicle | not yet — needs the adapter and the simulator |
+| Mission planning, deconfliction, auth | not yet |
 
 ---
 
@@ -90,7 +92,7 @@ each vehicle a marker pointed along the heading it reported.
 ```
 src/Mcs.Core        the domain — telemetry model, ingest boundary, bounded store
 src/Mcs.Api         ASP.NET Core host; the fake feed lives here for now
-src/Mcs.Adapters    vehicle adapters (empty)
+src/Mcs.Adapters    vehicle adapters; Mavlink/ holds the hand-written v2 framing codec
 src/Mcs.Simulator   vehicle simulator (stub)
 web/                React + TypeScript + Vite console; the basemap is served from web/public
 tests/              unit tests for the core and the feed; integration tests against a real
@@ -108,8 +110,10 @@ Adding a ground vehicle later should mean writing a new adapter and changing no 
 core that has grown a web, database or protocol dependency makes that claim indefensible.
 
 `Mcs.Core` therefore has no package references at all, and its project file being empty is
-what enforces it. The fake feed sits in the API host for now precisely because it is not an
-adapter — there is no wire format to adapt yet.
+what enforces it. The fake feed sits in the API host rather than in `Mcs.Adapters` precisely
+because it is not an adapter: it invents telemetry instead of decoding any wire format. The
+MAVLink framing codec, which does decode one, is the first thing to live in `Mcs.Adapters` —
+and it stays clear of the core, because MAVLink is a protocol and the core is vehicle-agnostic.
 
 ---
 
@@ -125,6 +129,14 @@ adapter — there is no wire format to adapt yet.
 - No authentication. Anything the API exposes is exposed to anyone who can reach it.
 - The basemap is deliberately minimal — no labels, no coastline — to keep the stack fully
   offline.
+- **MAVLink message signing is not implemented, and is not planned.** Signed frames are
+  recognised, rejected and counted rather than misparsed. Signing is a substantial sub-feature —
+  key management, timestamp windows, replay rejection — that nothing here needs, and a
+  half-implementation of an authentication mechanism is worse than none, because it invites the
+  assumption that frames were authenticated.
+- The MAVLink codec decodes four message types, the ones the console displays. A frame carrying
+  any other message id is counted and skipped, and cannot be checksum-verified at all, because
+  the checksum seed is per-message.
 - Nothing on screen yet distinguishes a vehicle reporting now from one that stopped ten
   minutes ago.
 
