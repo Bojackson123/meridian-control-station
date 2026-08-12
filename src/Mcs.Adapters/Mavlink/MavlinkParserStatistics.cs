@@ -77,8 +77,38 @@ public sealed class MavlinkParserStatistics
     /// the assumption that frames were authenticated. Counted rather than ignored so that a link
     /// configured to require signing presents as a number climbing here rather than as a station
     /// that mysteriously sees no traffic.
+    /// <para>
+    /// Reading it as that configuration mismatch -- rather than as lost frames -- is only safe because
+    /// a signed frame is verified before it is stepped over: by its checksum where the message id is
+    /// known, and otherwise by the same length corroboration
+    /// <see cref="UnknownMessagesSkipped"/> describes. Without it a corrupt length byte with the
+    /// signing bit set consumed up to 280 bytes of good frames and landed here as one increment, and
+    /// on a signed link every frame takes that path.
+    /// </para>
     /// </remarks>
     public long SignedFramesRejected { get; internal set; }
+
+    /// <summary>
+    /// Gets the number of frame candidates discarded for declaring an incompatibility flag this
+    /// parser does not implement.
+    /// </summary>
+    /// <remarks>
+    /// The specification's rule for an unimplemented incompatibility flag is to discard the frame --
+    /// that is what makes the flags <i>incompatible</i> rather than merely unknown -- so the discard
+    /// is correct and this counter is the only way to tell it happened. Its absence was the same
+    /// reporting gap <see cref="SignedFramesRejected"/> exists to close: firmware that starts setting
+    /// a flag defined after this parser was written would present as a station seeing no frames on a
+    /// link whose only rising number is <see cref="BytesResynced"/> -- indistinguishable from a bad
+    /// radio, and the wrong thing to go and check.
+    /// <para>
+    /// Frame <i>candidates</i>, not frames: an undefined flag is exactly the mechanism a future
+    /// revision would use to append data, so the length field cannot be trusted to say where such a
+    /// frame ends and the discard is one byte with the remainder rescanned. That rescan can find a
+    /// second candidate inside the same frame and land here again. Read it as evidence of a feature
+    /// mismatch, not as a count of frames lost.
+    /// </para>
+    /// </remarks>
+    public long IncompatibleFlagsRejected { get; internal set; }
 
     /// <summary>Returns an independent copy, safe to hand to code running on another thread.</summary>
     public MavlinkParserStatistics Snapshot() => new()
@@ -89,9 +119,11 @@ public sealed class MavlinkParserStatistics
         UnknownMessagesSkipped = UnknownMessagesSkipped,
         V1FramesSkipped = V1FramesSkipped,
         SignedFramesRejected = SignedFramesRejected,
+        IncompatibleFlagsRejected = IncompatibleFlagsRejected,
     };
 
     public override string ToString() =>
         $"parsed={FramesParsed}, crcFailures={ChecksumFailures}, resyncedBytes={BytesResynced}, "
-        + $"unknown={UnknownMessagesSkipped}, v1={V1FramesSkipped}, signed={SignedFramesRejected}";
+        + $"unknown={UnknownMessagesSkipped}, v1={V1FramesSkipped}, signed={SignedFramesRejected}, "
+        + $"incompatFlags={IncompatibleFlagsRejected}";
 }
