@@ -141,6 +141,26 @@ def _messages() -> dict[str, mavlink.MAVLink_message]:
             errors_count3=3,
             errors_count4=4,
         ),
+        #  The same message with a battery that was actually measured. Both cases are needed
+        #  because they exercise opposite halves of one rule: -1 must become "unreported" and
+        #  73 must survive as 73, and a decoder that mapped every value to null would pass the
+        #  vector above on its own. Every other field differs from it too, so a decoder reading
+        #  the wrong offset lands on a different number rather than on a coincidence.
+        "sys_status_battery": mavlink.MAVLink_sys_status_message(
+            onboard_control_sensors_present=0x0F_FF_FF_FF,
+            onboard_control_sensors_enabled=0x00_00_20_36,
+            onboard_control_sensors_health=0x00_00_20_16,
+            load=312,
+            voltage_battery=11_100,
+            current_battery=1_850,
+            battery_remaining=73,
+            drop_rate_comm=12,
+            errors_comm=5,
+            errors_count1=11,
+            errors_count2=22,
+            errors_count3=33,
+            errors_count4=44,
+        ),
         #  Floats, which is the point: four IEEE-754 values whose byte patterns a hand-written
         #  decoder has to get right, including a negative climb rate.
         "vfr_hud": mavlink.MAVLink_vfr_hud_message(
@@ -266,6 +286,11 @@ def build() -> dict[str, object]:
             "Nine trailing zero bytes trimmed; the cut falls inside relative_alt.",
         ),
         _vector("sys_status", messages["sys_status"], "battery_remaining is -1, meaning unmeasured."),
+        _vector(
+            "sys_status_battery",
+            messages["sys_status_battery"],
+            "battery_remaining is 73, a percentage that was measured and must survive as itself.",
+        ),
         _vector("vfr_hud", messages["vfr_hud"], "Four IEEE-754 floats, one of them negative."),
         _vector(
             "heartbeat_all_zero",

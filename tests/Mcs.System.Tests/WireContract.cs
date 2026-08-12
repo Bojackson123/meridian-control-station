@@ -64,8 +64,14 @@ internal sealed record VehicleFrame(
     double LatitudeDegrees,
     double LongitudeDegrees,
     Altitude Altitude,
-    double GroundSpeedMetersPerSecond,
-    double HeadingDegrees,
+
+    //  Nullable, matching the console's own types. Declaring these as `double` would still pass
+    //  today, because the fake feed reports both on every frame -- and would throw the first time a
+    //  real adapter emitted a position before its speed and heading were known. That is precisely
+    //  the failure this project exists to catch, so the contract is widened deliberately rather
+    //  than left to be discovered against a live stack.
+    double? GroundSpeedMetersPerSecond,
+    double? HeadingDegrees,
     double? BatteryPercent,
     string LinkStatus,
     DateTimeOffset ReceivedAtUtc);

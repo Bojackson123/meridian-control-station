@@ -43,10 +43,14 @@ export interface VehicleFrame {
   latitudeDegrees: number
   longitudeDegrees: number
   altitude: Altitude
-  groundSpeedMetersPerSecond: number
-  headingDegrees: number
 
-  //  Nullable on the wire: a vehicle that does not report a battery says nothing rather than zero.
+  //  Three nullable fields, and null means the vehicle did not report one -- never that it reported
+  //  zero. A vehicle sends its position and its velocity in separate messages at separate rates, so
+  //  the station knowing where something is without knowing which way it faces is an ordinary state
+  //  and not an error. Rendering any of these as 0 would be a confident claim the data cannot
+  //  support: a heading of 0 is north, and a ground speed of 0 is a vehicle at rest.
+  groundSpeedMetersPerSecond: number | null
+  headingDegrees: number | null
   batteryPercent: number | null
 
   linkStatus: LinkStatus

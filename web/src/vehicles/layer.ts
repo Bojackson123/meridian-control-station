@@ -2,7 +2,11 @@ import type { Feature, FeatureCollection, Point } from 'geojson'
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl'
 
 import type { Fleet } from '../telemetry/types'
-import { VEHICLE_ICON_PIXEL_RATIO, createVehicleIcon } from './icon'
+import {
+  VEHICLE_ICON_PIXEL_RATIO,
+  createHeadinglessVehicleIcon,
+  createVehicleIcon,
+} from './icon'
 
 /**
  * The layer the fleet is drawn on.
@@ -23,11 +27,16 @@ import { VEHICLE_ICON_PIXEL_RATIO, createVehicleIcon } from './icon'
 const SOURCE_ID = 'vehicles'
 const LAYER_ID = 'vehicles'
 const ICON_ID = 'vehicle-marker'
+const HEADINGLESS_ICON_ID = 'vehicle-marker-headingless'
 
 /** What each feature carries. Only what a layer expression reads -- the frame itself stays with the client. */
 interface VehicleFeatureProperties {
   vehicleId: string
-  headingDegrees: number
+
+  //  Absent, not zero, when the vehicle did not report a heading. The property is omitted entirely
+  //  rather than set to null, because that is what makes `has` a reliable test in the expressions
+  //  below -- a property present and null would answer true and select the dart.
+  headingDegrees?: number
 }
 
 /**
@@ -39,6 +48,9 @@ interface VehicleFeatureProperties {
  */
 export function attachVehicleLayer(map: MapLibreMap): (fleet: Fleet) => void {
   map.addImage(ICON_ID, createVehicleIcon(), { pixelRatio: VEHICLE_ICON_PIXEL_RATIO })
+  map.addImage(HEADINGLESS_ICON_ID, createHeadinglessVehicleIcon(), {
+    pixelRatio: VEHICLE_ICON_PIXEL_RATIO,
+  })
 
   map.addSource(SOURCE_ID, { type: 'geojson', data: featuresFor(new Map()) })
 
@@ -47,11 +59,18 @@ export function attachVehicleLayer(map: MapLibreMap): (fleet: Fleet) => void {
     type: 'symbol',
     source: SOURCE_ID,
     layout: {
-      'icon-image': ICON_ID,
+      //  A vehicle that reported no heading loses its nose rather than being pointed somewhere.
+      //  Zero would be north, and a marker asserting a direction nothing reported is the display
+      //  claiming what it cannot support -- the same reason the state language drops the heading on
+      //  a lost track. Shape says whether a direction is known; fill says whether the data is
+      //  current; they are separate channels and this one is the first.
+      'icon-image': ['case', ['has', 'headingDegrees'], ICON_ID, HEADINGLESS_ICON_ID],
 
       //  Clockwise from north, the same convention the frame's heading uses, so this is a read
-      //  rather than a conversion.
-      'icon-rotate': ['get', 'headingDegrees'],
+      //  rather than a conversion. The fallback is only ever applied to the headingless marker,
+      //  which is round and so rotates to no effect; it exists because the expression must return a
+      //  number for every feature, not because zero means anything here.
+      'icon-rotate': ['coalesce', ['get', 'headingDegrees'], 0],
 
       //  Rotate with the map, not with the screen. The two agree only while the bearing is zero,
       //  and the day the console gains a track-up view is not the day to discover that.
@@ -99,9 +118,17 @@ function featuresFor(fleet: Fleet): FeatureCollection<Point, VehicleFeaturePrope
         type: 'Point',
         coordinates: [frame.longitudeDegrees, frame.latitudeDegrees],
       },
+      //  Spread rather than assigned, so an unreported heading leaves the key off the feature
+      //  entirely. Assigning null -- or undefined -- would put a property there for `has` to find,
+      //  and the marker would take its nose back and point at the coalesce fallback of north.
+      //
+      //  Tested for being a number rather than against null, because a frame is cast from
+      //  JSON.parse and never validated, so absence reaches here as undefined the moment anything
+      //  upstream omits the key instead of nulling it -- a serialiser configured to skip nulls, or
+      //  a second producer of this shape. `=== null` would miss that and draw the confident north.
       properties: {
         vehicleId: frame.vehicleId,
-        headingDegrees: frame.headingDegrees,
+        ...(typeof frame.headingDegrees === 'number' ? { headingDegrees: frame.headingDegrees } : {}),
       },
     })
   }
