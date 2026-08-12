@@ -77,12 +77,13 @@ each vehicle a marker pointed along the heading it reported.
 | Postgres — schema migration on startup, `/health` and `/health/db` | working, tested |
 | Telemetry HTTP API — `/api/vehicles` and an SSE `/api/telemetry/stream` | working, tested |
 | Offline basemap — dark MapLibre style, zoom-adaptive graticule, no third-party requests | working |
-| Map console — the fleet on the basemap, each marker oriented by heading | working |
+| Map console — the fleet on the basemap, each marker oriented by heading | working; a vehicle that reported no heading is drawn without a nose rather than pointed north |
 | Persistence of domain data | not yet — the schema mechanism is proven, the tables that use it arrive with the features that define them |
 | Console state language — live / stale / lost, alerts | not yet — a dead feed shows only in the browser console |
 | Docker Compose — database, API and console, one command, offline | working |
 | MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | landed after `v0.1`; **not wired to a link** — nothing yet feeds it from a socket |
-| Reading MAVLink from a real vehicle | not yet — needs the adapter and the simulator |
+| MAVLink message decode — the four messages the console displays, assembled into telemetry | landed after `v0.1`, tested against the same vectors; **still not wired to a link** |
+| Reading MAVLink from a real vehicle | not yet — the codec and the assembly are there, the socket and the simulator are not |
 | Mission planning, deconfliction, auth | not yet |
 
 ---
@@ -137,6 +138,14 @@ and it stays clear of the core, because MAVLink is a protocol and the core is ve
 - The MAVLink codec decodes four message types, the ones the console displays. A frame carrying
   any other message id is counted and skipped, and cannot be checksum-verified at all, because
   the checksum seed is per-message.
+- A vehicle's altitude is reported above mean sea level and nothing converts it. `relative_alt`
+  — height above the point the vehicle armed at — is decoded and deliberately unused, because it
+  equals height above the ground only over flat terrain and there is no terrain model here to
+  make the conversion honest.
+- Fault flags are stubbed. `SYS_STATUS`'s sensor-health bitmasks are decoded and read by nothing,
+  and the link status the API reports is always healthy: a decoded frame is one that arrived, so
+  this path holds no evidence of a degraded link. Whether a vehicle has gone quiet is a question
+  about the station's clock, and nothing answers it yet — see the last item below.
 - Nothing on screen yet distinguishes a vehicle reporting now from one that stopped ten
   minutes ago.
 
@@ -205,6 +214,11 @@ data: {"vehicleId":"UAV-01","latitudeDegrees":34.7333065,"longitudeDegrees":-86.
        "headingDegrees":126.0114069,"batteryPercent":99.5554147,"linkStatus":"Healthy",
        "receivedAtUtc":"2026-08-09T22:54:29.3154398+00:00"}
 ```
+
+`groundSpeedMetersPerSecond`, `headingDegrees` and `batteryPercent` are nullable and arrive as
+`null` when the vehicle did not report them — never as `0`, which is a speed, a bearing and a
+flat battery respectively. A client that substitutes a number for one of them puts a claim on
+screen that no vehicle made.
 
 Wrapped here to fit the page — on the wire each `data:` is a single line, because a raw
 newline inside one would break SSE framing. After fifteen seconds of silence the stream sends

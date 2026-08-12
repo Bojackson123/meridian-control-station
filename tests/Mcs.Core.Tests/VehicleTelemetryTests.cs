@@ -232,7 +232,12 @@ public class VehicleTelemetryTests
         // -0.0 is not less than zero, so it survives the in-range guard unless the guard excludes
         // it deliberately. It has to reach the fold, which turns it into +0.0: stored as -0.0 it
         // would render and serialise as "-0", which is not a heading.
-        double heading = TelemetrySamples.Telemetry(headingDegrees: -0.0).HeadingDegrees;
+        double? reported = TelemetrySamples.Telemetry(headingDegrees: -0.0).HeadingDegrees;
+
+        // Not null, because a heading was supplied: the sample passes one, so a null here would be
+        // the normalisation losing it rather than the vehicle declining to report it.
+        Assert.NotNull(reported);
+        double heading = reported.Value;
 
         Assert.Equal(0.0, heading);
         Assert.False(double.IsNegative(heading));
@@ -252,7 +257,10 @@ public class VehicleTelemetryTests
         // The postcondition the console will index a compass rose with. Asserted as a range
         // rather than an exact value so the messy inputs -- the ones a real adapter produces --
         // are covered without hand-computing a decimal literal that would only be a guess.
-        double heading = TelemetrySamples.Telemetry(headingDegrees: raw).HeadingDegrees;
+        double? reported = TelemetrySamples.Telemetry(headingDegrees: raw).HeadingDegrees;
+
+        Assert.NotNull(reported);
+        double heading = reported.Value;
 
         Assert.True(heading >= 0, $"{raw} normalised to {heading}, which is negative.");
         Assert.True(heading < 360, $"{raw} normalised to {heading}, which is not below 360.");
@@ -298,6 +306,43 @@ public class VehicleTelemetryTests
         // in front of the operator that was never measured -- and the one number that would make
         // them abort. Null forces the console into an explicit "no data" state instead.
         Assert.Null(TelemetrySamples.Telemetry(batteryPercent: null).BatteryPercent);
+    }
+
+    [Fact]
+    public void Create_UnreportedHeading_StaysNullRatherThanBecomingZero()
+    {
+        // Heading is the field with the least tolerance for a substituted value: it is drawn as the
+        // direction the nose points, so a zero standing in for "unknown" is a marker confidently
+        // claiming north. A vehicle reports its position and its velocity in separate messages at
+        // separate rates, so knowing where something is without knowing which way it faces is an
+        // ordinary state of the world, not an error.
+        Assert.Null(TelemetrySamples.Telemetry(headingDegrees: null).HeadingDegrees);
+    }
+
+    [Fact]
+    public void Create_UnreportedGroundSpeed_StaysNullRatherThanBecomingZero()
+    {
+        // Zero is a speed, and a vehicle shown at rest is a vehicle an operator stops watching.
+        Assert.Null(
+            TelemetrySamples.Telemetry(groundSpeedMetersPerSecond: null).GroundSpeedMetersPerSecond);
+    }
+
+    [Fact]
+    public void Create_UnreportedFields_AreNotSubjectedToTheRangeChecks()
+    {
+        // Absence is not a range violation, and collapsing the two would make "the vehicle did not
+        // say" indistinguishable from "the vehicle said something impossible" -- one of which is
+        // ordinary and one of which means an adapter is broken.
+        VehicleTelemetry telemetry = TelemetrySamples.Telemetry(
+            groundSpeedMetersPerSecond: null, headingDegrees: null, batteryPercent: null);
+
+        Assert.Null(telemetry.GroundSpeedMetersPerSecond);
+        Assert.Null(telemetry.HeadingDegrees);
+        Assert.Null(telemetry.BatteryPercent);
+
+        // Position is deliberately not nullable: a report with no position is not renderable at
+        // all, so it is never constructed rather than constructed empty.
+        Assert.Equal(51.5074, telemetry.LatitudeDegrees);
     }
 
     [Theory]
@@ -420,6 +465,20 @@ public class VehicleTelemetryTests
             "BatteryPercent = unreported",
             TelemetrySamples.Telemetry(batteryPercent: null).ToString(),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToString_EveryUnreportedField_ReadsTheSameWay()
+    {
+        // One word for all three absences. A log line where a missing heading reads differently
+        // from a missing battery invites whoever is reading it to believe the difference means
+        // something, and it does not -- both are the vehicle declining to say.
+        string text = TelemetrySamples.Telemetry(
+            groundSpeedMetersPerSecond: null, headingDegrees: null, batteryPercent: null).ToString();
+
+        Assert.Contains("GroundSpeedMetersPerSecond = unreported", text, StringComparison.Ordinal);
+        Assert.Contains("HeadingDegrees = unreported", text, StringComparison.Ordinal);
+        Assert.Contains("BatteryPercent = unreported", text, StringComparison.Ordinal);
     }
 
     [Fact]

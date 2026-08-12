@@ -41,6 +41,9 @@ const OUTLINE: readonly (readonly [number, number])[] = [
   [4, 21],     // port tip
 ]
 
+/** The headingless marker's radius, sized to cover about the same ink as the dart. */
+const DISC_RADIUS_PIXELS = 7
+
 /**
  * Builds the marker bitmap for `map.addImage`.
  *
@@ -51,6 +54,38 @@ const OUTLINE: readonly (readonly [number, number])[] = [
  * @throws If a 2D canvas context is unavailable, which means the marker would silently never appear.
  */
 export function createVehicleIcon(): ImageData {
+  return draw((context) => {
+    context.beginPath()
+    for (const [x, y] of OUTLINE) context.lineTo(x, y)
+    context.closePath()
+  })
+}
+
+/**
+ * The marker for a vehicle whose heading is not known: the same ink, with no nose.
+ *
+ * **Shape carries direction, fill carries currency, and the two are separate channels.** A frame can
+ * be current and still not say which way the vehicle is pointing — position and velocity arrive in
+ * different messages at different rates, so this is ordinary rather than exceptional. Drawing the
+ * dart anyway would need a heading to point it at, and the only one available would be invented:
+ * zero is north, and a marker asserting north is worse than a marker declining to say.
+ *
+ * Round, so rotation is a no-op on it and no caller has to remember not to rotate it. It keeps the
+ * live fill deliberately — solidity means *the data is current*, and it never means *nothing is
+ * wrong*.
+ */
+export function createHeadinglessVehicleIcon(): ImageData {
+  return draw((context) => {
+    const centre = ICON_SIZE_PIXELS / 2
+
+    context.beginPath()
+    context.arc(centre, centre, DISC_RADIUS_PIXELS, 0, 2 * Math.PI)
+    context.closePath()
+  })
+}
+
+/** The canvas scaffolding both markers share, so they cannot drift apart in ink or scale. */
+function draw(path: (context: CanvasRenderingContext2D) => void): ImageData {
   const scale = VEHICLE_ICON_PIXEL_RATIO
   const extent = ICON_SIZE_PIXELS * scale
 
@@ -65,9 +100,7 @@ export function createVehicleIcon(): ImageData {
 
   context.scale(scale, scale)
 
-  context.beginPath()
-  for (const [x, y] of OUTLINE) context.lineTo(x, y)
-  context.closePath()
+  path(context)
 
   //  Stroked first, then filled over it, so the outline sits entirely outside the shape: a stroke
   //  drawn last would eat half its width off the dart's already narrow tips.

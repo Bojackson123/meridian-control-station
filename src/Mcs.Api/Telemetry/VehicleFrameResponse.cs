@@ -17,8 +17,12 @@ public sealed record VehicleFrameResponse(
     double LatitudeDegrees,
     double LongitudeDegrees,
     AltitudeResponse Altitude,
-    double GroundSpeedMetersPerSecond,
-    double HeadingDegrees,
+
+    //  Nullable on the wire, all three: System.Text.Json writes them as `null` rather than omitting
+    //  them, so a console reading this cannot mistake "the vehicle did not report a heading" for a
+    //  field the API forgot to send. A zero here would be indistinguishable from a real one.
+    double? GroundSpeedMetersPerSecond,
+    double? HeadingDegrees,
     double? BatteryPercent,
     LinkStatus LinkStatus,
     DateTimeOffset ReceivedAtUtc)

@@ -50,6 +50,19 @@ public enum LinkStatus
 /// different road.
 /// </para>
 /// <para>
+/// <b>Three fields are nullable, and the nullability is the model's vocabulary for "not known".</b>
+/// Ground speed, heading and battery may each be absent, because each of them genuinely can be: a
+/// vehicle reports its position and its velocity in different messages at different rates, so a
+/// station can know exactly where something is and not know which way it is pointing. Substituting a
+/// number for that -- a zero heading, a zero speed -- draws a vehicle stationary and facing true
+/// north, which is a confident claim the data does not support. The console renders an absent field
+/// as a dash and an absent heading as a ring with no nose, which is the honest content of the data.
+/// </para>
+/// <para>
+/// Position and altitude are <i>not</i> nullable, and that asymmetry is the emit rule: a report with
+/// no position is not renderable at all, so it is never constructed rather than constructed empty.
+/// </para>
+/// <para>
 /// Units are in the property names because the wire formats disagree with them: MAVLink carries
 /// position as <c>int32</c> degrees times 1e7, and much aviation equipment reports knots and feet.
 /// Conversion belongs at the adapter boundary, and an adapter that forgets produces a value this
@@ -69,9 +82,9 @@ public enum LinkStatus
 ///     latitudeDegrees: 51.5074,
 ///     longitudeDegrees: -0.1278,
 ///     altitude: Altitude.FromMeters(120, AltitudeReference.Agl),
-///     groundSpeedMetersPerSecond: 14.2,
-///     headingDegrees: 372.5,      // normalised to 12.5
-///     batteryPercent: 87.0,       // null means "not reported", never 0
+///     groundSpeedMetersPerSecond: 14.2,   // null means "not reported", never 0
+///     headingDegrees: 372.5,              // normalised to 12.5; null is also allowed
+///     batteryPercent: 87.0,               // null means "not reported", never 0
 ///     linkStatus: LinkStatus.Healthy);
 /// </code>
 /// </remarks>
@@ -101,8 +114,8 @@ public sealed record VehicleTelemetry
         double latitudeDegrees,
         double longitudeDegrees,
         Altitude altitude,
-        double groundSpeedMetersPerSecond,
-        double headingDegrees,
+        double? groundSpeedMetersPerSecond,
+        double? headingDegrees,
         double? batteryPercent,
         LinkStatus linkStatus)
     {
@@ -123,8 +136,13 @@ public sealed record VehicleTelemetry
     /// <param name="latitudeDegrees">Signed decimal degrees, WGS-84. -90 to 90.</param>
     /// <param name="longitudeDegrees">Signed decimal degrees, WGS-84. -180 to 180.</param>
     /// <param name="altitude">Altitude with its reference (MCS-004). Must not be <c>default</c>.</param>
-    /// <param name="groundSpeedMetersPerSecond">Speed over the ground. Finite and non-negative.</param>
-    /// <param name="headingDegrees">Any finite value; normalised into [0, 360). See <see cref="HeadingDegrees"/>.</param>
+    /// <param name="groundSpeedMetersPerSecond">
+    /// Speed over the ground, finite and non-negative, or <see langword="null"/> if unreported.
+    /// </param>
+    /// <param name="headingDegrees">
+    /// Any finite value, normalised into [0, 360), or <see langword="null"/> if unreported. See
+    /// <see cref="HeadingDegrees"/>.
+    /// </param>
     /// <param name="batteryPercent">0 to 100, or <see langword="null"/> if unreported.</param>
     /// <param name="linkStatus">Must be a declared <see cref="LinkStatus"/>.</param>
     /// <exception cref="ArgumentException"><paramref name="id"/> or <paramref name="altitude"/> was never initialised.</exception>
@@ -134,8 +152,8 @@ public sealed record VehicleTelemetry
         double latitudeDegrees,
         double longitudeDegrees,
         Altitude altitude,
-        double groundSpeedMetersPerSecond,
-        double headingDegrees,
+        double? groundSpeedMetersPerSecond,
+        double? headingDegrees,
         double? batteryPercent,
         LinkStatus linkStatus)
     {
@@ -182,20 +200,25 @@ public sealed record VehicleTelemetry
 
         //  No upper bound on speed: there is no defensible ceiling in the requirements, and an
         //  invented one would reject a legitimate report from whatever airframe is added later.
-        if (!double.IsFinite(groundSpeedMetersPerSecond) || groundSpeedMetersPerSecond < 0)
+        //  Absence is not a range violation, so a null skips the check rather than failing it --
+        //  which is the difference between "the vehicle did not say" and "the vehicle said
+        //  something impossible", and the two must not collapse into one rejection.
+        if (groundSpeedMetersPerSecond is { } groundSpeed
+            && (!double.IsFinite(groundSpeed) || groundSpeed < 0))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(groundSpeedMetersPerSecond),
                 groundSpeedMetersPerSecond,
-                "Ground speed must be a finite, non-negative number of metres per second.");
+                "Ground speed must be a finite, non-negative number of metres per second, "
+                + "or null if unreported.");
         }
 
-        if (!double.IsFinite(headingDegrees))
+        if (headingDegrees is { } heading && !double.IsFinite(heading))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(headingDegrees),
                 headingDegrees,
-                "Heading must be a finite number of degrees.");
+                "Heading must be a finite number of degrees, or null if unreported.");
         }
 
         if (batteryPercent is { } battery
@@ -220,7 +243,7 @@ public sealed record VehicleTelemetry
             longitudeDegrees,
             altitude,
             groundSpeedMetersPerSecond,
-            NormaliseHeading(headingDegrees),
+            headingDegrees is { } reported ? NormaliseHeading(reported) : null,
             batteryPercent,
             linkStatus);
     }
@@ -237,11 +260,19 @@ public sealed record VehicleTelemetry
     /// <summary>Gets the altitude together with the reference it was measured against (MCS-004).</summary>
     public Altitude Altitude { get; }
 
-    /// <summary>Gets the speed over the ground in metres per second. Non-negative.</summary>
-    public double GroundSpeedMetersPerSecond { get; }
+    /// <summary>
+    /// Gets the speed over the ground in metres per second, non-negative, or <see langword="null"/>
+    /// if the vehicle did not report it.
+    /// </summary>
+    /// <remarks>
+    /// Nullable for the same reason as <see cref="BatteryPercent"/> and with a sharper edge: zero is
+    /// a speed, and a vehicle shown at rest is a vehicle an operator stops worrying about.
+    /// </remarks>
+    public double? GroundSpeedMetersPerSecond { get; }
 
     /// <summary>
-    /// Gets the heading in degrees clockwise from <b>true</b> north, normalised into [0, 360).
+    /// Gets the heading in degrees clockwise from <b>true</b> north, normalised into [0, 360), or
+    /// <see langword="null"/> if the vehicle did not report it.
     /// </summary>
     /// <remarks>
     /// Two conversions belong to the adapter, and both are silent if skipped. <b>True, not
@@ -252,8 +283,14 @@ public sealed record VehicleTelemetry
     /// Normalised rather than rejected because 361 and -1 are ordinary outputs of an adapter's own
     /// arithmetic and mean something unambiguous, unlike a latitude of 95.
     /// </para>
+    /// <para>
+    /// <b>Null is not zero and must not be rendered as one.</b> A heading is the field with the
+    /// least tolerance for a substituted value: it is drawn as the direction the nose points, so an
+    /// invented zero is a marker confidently claiming north. Where this is null the marker loses its
+    /// nose entirely -- the display declining to say what it does not know.
+    /// </para>
     /// </remarks>
-    public double HeadingDegrees { get; }
+    public double? HeadingDegrees { get; }
 
     /// <summary>
     /// Gets the remaining charge as a percentage from 0 to 100, or <see langword="null"/> if the
@@ -298,17 +335,19 @@ public sealed record VehicleTelemetry
         builder.Append(invariant, $"{nameof(LatitudeDegrees)} = {LatitudeDegrees.ToString(CoordinateFormat, invariant)}, ");
         builder.Append(invariant, $"{nameof(LongitudeDegrees)} = {LongitudeDegrees.ToString(CoordinateFormat, invariant)}, ");
         builder.Append(invariant, $"{nameof(Altitude)} = {Altitude.ToString(ScalarFormat, invariant)}, ");
-        builder.Append(invariant, $"{nameof(GroundSpeedMetersPerSecond)} = {GroundSpeedMetersPerSecond.ToString(ScalarFormat, invariant)}, ");
-        builder.Append(invariant, $"{nameof(HeadingDegrees)} = {HeadingDegrees.ToString(ScalarFormat, invariant)}, ");
 
-        //  "unreported" rather than an empty slot, so a missing battery is visibly a decision rather
-        //  than something that looks like a formatting failure.
-        string battery = BatteryPercent is { } value
-            ? value.ToString(ScalarFormat, invariant)
-            : "unreported";
-        builder.Append(invariant, $"{nameof(BatteryPercent)} = {battery}, ");
+        //  "unreported" rather than an empty slot, so a missing field is visibly a decision rather
+        //  than something that looks like a formatting failure. Shared by all three nullable fields,
+        //  because a log line where one absence reads differently from another invites the reader to
+        //  believe the difference means something.
+        builder.Append(invariant, $"{nameof(GroundSpeedMetersPerSecond)} = {Format(GroundSpeedMetersPerSecond, invariant)}, ");
+        builder.Append(invariant, $"{nameof(HeadingDegrees)} = {Format(HeadingDegrees, invariant)}, ");
+        builder.Append(invariant, $"{nameof(BatteryPercent)} = {Format(BatteryPercent, invariant)}, ");
         builder.Append(invariant, $"{nameof(LinkStatus)} = {LinkStatus}");
 
         return true;
     }
+
+    private static string Format(double? value, CultureInfo culture) =>
+        value is { } reported ? reported.ToString(ScalarFormat, culture) : "unreported";
 }

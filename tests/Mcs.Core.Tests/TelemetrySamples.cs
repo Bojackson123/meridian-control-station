@@ -36,8 +36,10 @@ internal static class TelemetrySamples
         double latitudeDegrees = 51.5074,
         double longitudeDegrees = -0.1278,
         Altitude? altitude = null,
-        double groundSpeedMetersPerSecond = 14.2,
-        double headingDegrees = 12.5,
+        //  Nullable with a non-null default, so "left alone" and "explicitly absent" are both
+        //  expressible: most tests want a reported heading and the ones about absence want null.
+        double? groundSpeedMetersPerSecond = 14.2,
+        double? headingDegrees = 12.5,
         double? batteryPercent = 87.0,
         LinkStatus linkStatus = LinkStatus.Healthy) =>
         VehicleTelemetry.Create(
