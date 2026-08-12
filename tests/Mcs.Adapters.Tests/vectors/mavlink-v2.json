@@ -1,0 +1,185 @@
+{
+  "generator": "tools/mavlink-vectors/generate.py",
+  "pymavlink_version": "2.4.42",
+  "src_component": 190,
+  "src_system": 255,
+  "streams": {
+    "back_to_back": {
+      "bytes": "fd09000000ffbe0000000500000001038104036ebefd1c000000ffbe21000080ee36002888e6ebb49b195ac41413001cce01001efbae01b5ff0e6a4dc0",
+      "expect": [
+        "heartbeat",
+        "global_position_int"
+      ],
+      "note": "Two complete frames in one buffer, no separator."
+    },
+    "corrupt_crc_then_good": {
+      "bytes": "fd09000000ffbe0000000500000001038104036ebffd1c000000ffbe21000080ee36002888e6ebb49b195ac41413001cce01001efbae01b5ff0e6a4dc0",
+      "expect": [
+        "global_position_int"
+      ],
+      "note": "A HEARTBEAT with one bit flipped in its checksum, followed by a good frame. The first must be rejected and the second must still be delivered -- which is what one-byte resync buys over discarding the buffer."
+    },
+    "leading_garbage": {
+      "bytes": "00fffd0200004299ab000000cdef0123fd09000000ffbe0000000500000001038104036ebe",
+      "expect": [
+        "heartbeat"
+      ],
+      "note": "Sixteen bytes of noise ahead of a good frame, covering a parser attached mid-stream. The noise contains a false 0xFD at offset 2 declaring a 2-byte payload and HEARTBEAT's message id, so it resolves as a checksum failure within this buffer. A false start byte declaring a large payload instead delays every frame behind it until that many bytes arrive -- which is unavoidable, since it cannot be told from a genuine frame split across two reads, but is emphatically not untestable: see the parser suite's IncompleteCandidate_DelaysTheFramesBehindItButDoesNotLoseThem, which pins the part that matters, that the queue is delivered and not discarded."
+    },
+    "signed_frame": {
+      "bytes": "fd09010000ffbe000000050000000103810403894601101112131415202122232425",
+      "expect": [],
+      "note": "A frame with MAVLINK_IFLAG_SIGNED set in incompat_flags and a 13-byte signature block appended. Signing is not implemented and never will be, so this must be rejected and counted rather than misparsed -- the signature bytes would otherwise be read as the start of the next frame."
+    },
+    "split_mid_payload": {
+      "chunks": [
+        "fd09000000ffbe0000000500000001038104036ebefd1c000000ffbe21000080ee3600",
+        "2888e6ebb49b195ac41413001cce01001efbae01b5ff0e6a4dc0"
+      ],
+      "expect": [
+        "heartbeat",
+        "global_position_int"
+      ],
+      "note": "The same two frames, delivered as two buffers split inside the second frame's payload. Must yield the same frames as back_to_back."
+    },
+    "unknown_message_id": {
+      "bytes": "fd20000000ffbe1f0000393000008104353f000000008104353f000000000000003e000080be0000003feeaffd1c000000ffbe21000080ee36002888e6ebb49b195ac41413001cce01001efbae01b5ff0e6a4dc0",
+      "expect": [
+        "global_position_int"
+      ],
+      "note": "ATTITUDE_QUATERNION (id 31), which the station has no decoder for, ahead of a good frame. Skipped by its length field and counted, never logged per frame."
+    },
+    "v1_frame_then_v2": {
+      "bytes": "fe0900ffbe00050000000103510403622ffd1c000000ffbe21000080ee36002888e6ebb49b195ac41413001cce01001efbae01b5ff0e6a4dc0",
+      "expect": [
+        "global_position_int"
+      ],
+      "note": "A MAVLink v1 HEARTBEAT ahead of a v2 frame. v1 is recognised and skipped, not decoded, and the v2 frame behind it must survive."
+    }
+  },
+  "stx_v1": 254,
+  "stx_v2": 253,
+  "vectors": [
+    {
+      "bytes": "fd09000000ffbe0000000500000001038104036ebe",
+      "crc_extra": 50,
+      "declared_payload_length": 9,
+      "fields": {
+        "autopilot": 3,
+        "base_mode": 129,
+        "custom_mode": 5,
+        "mavlink_version": 3,
+        "system_status": 4,
+        "type": 1
+      },
+      "message": "HEARTBEAT",
+      "message_id": 0,
+      "name": "heartbeat",
+      "note": "Full payload; no truncation applies.",
+      "payload_length": 9
+    },
+    {
+      "bytes": "fd1c000000ffbe21000080ee36002888e6ebb49b195ac41413001cce01001efbae01b5ff0e6a4dc0",
+      "crc_extra": 104,
+      "declared_payload_length": 28,
+      "fields": {
+        "alt": 1250500,
+        "hdg": 27150,
+        "lat": -337213400,
+        "lon": 1511627700,
+        "relative_alt": 118300,
+        "time_boot_ms": 3600000,
+        "vx": -1250,
+        "vy": 430,
+        "vz": -75
+      },
+      "message": "GLOBAL_POSITION_INT",
+      "message_id": 33,
+      "name": "global_position_int",
+      "note": "Every field non-zero, so the full 28-byte payload is on the wire.",
+      "payload_length": 28
+    },
+    {
+      "bytes": "fd13000000ffbe210000e8030000d067b31ed07fecffc0d40100a0860161e2",
+      "crc_extra": 104,
+      "declared_payload_length": 28,
+      "fields": {
+        "alt": 120000,
+        "hdg": 0,
+        "lat": 515074000,
+        "lon": -1278000,
+        "relative_alt": 100000,
+        "time_boot_ms": 1000,
+        "vx": 0,
+        "vy": 0,
+        "vz": 0
+      },
+      "message": "GLOBAL_POSITION_INT",
+      "message_id": 33,
+      "name": "global_position_int_truncated",
+      "note": "Nine trailing zero bytes trimmed; the cut falls inside relative_alt.",
+      "payload_length": 19
+    },
+    {
+      "bytes": "fd1f000000ffbe010000ffffff0f2510000005100000a5013831ffff230007000100020003000400ff08d5",
+      "crc_extra": 124,
+      "declared_payload_length": 31,
+      "fields": {
+        "battery_remaining": -1,
+        "current_battery": -1,
+        "drop_rate_comm": 35,
+        "errors_comm": 7,
+        "errors_count1": 1,
+        "errors_count2": 2,
+        "errors_count3": 3,
+        "errors_count4": 4,
+        "load": 421,
+        "onboard_control_sensors_enabled": 4133,
+        "onboard_control_sensors_health": 4101,
+        "onboard_control_sensors_present": 268435455,
+        "voltage_battery": 12600
+      },
+      "message": "SYS_STATUS",
+      "message_id": 1,
+      "name": "sys_status",
+      "note": "battery_remaining is -1, meaning unmeasured.",
+      "payload_length": 31
+    },
+    {
+      "bytes": "fd13000000ffbe4a00000000be410000ac4100509c44000010c08e00431e5f",
+      "crc_extra": 20,
+      "declared_payload_length": 20,
+      "fields": {
+        "airspeed": 23.75,
+        "alt": 1250.5,
+        "climb": -2.25,
+        "groundspeed": 21.5,
+        "heading": 142,
+        "throttle": 67
+      },
+      "message": "VFR_HUD",
+      "message_id": 74,
+      "name": "vfr_hud",
+      "note": "Four IEEE-754 floats, one of them negative.",
+      "payload_length": 19
+    },
+    {
+      "bytes": "fd01000000ffbe000000005ec2",
+      "crc_extra": 50,
+      "declared_payload_length": 9,
+      "fields": {
+        "autopilot": 0,
+        "base_mode": 0,
+        "custom_mode": 0,
+        "mavlink_version": 0,
+        "system_status": 0,
+        "type": 0
+      },
+      "message": "HEARTBEAT",
+      "message_id": 0,
+      "name": "heartbeat_all_zero",
+      "note": "All fields zero. Truncation stops at one byte; a zero-length payload never occurs.",
+      "payload_length": 1
+    }
+  ]
+}

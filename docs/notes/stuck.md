@@ -272,3 +272,48 @@ The general lesson is cheaper than the specific one: the suite would have shippe
 with a comment claiming it guarded something it did not, if I had trusted the assertion
 instead of spending twenty minutes trying to make it fail. A test written for a specific
 failure mode and never run against that failure mode is a guess with a green tick on it.
+
+---
+
+## 2026-08-11 — pymavlink will not install, and the newest version is the reason
+
+**Symptom.** `pip install pymavlink` into a fresh 3.12 venv failed building a wheel for
+`fastcrc`, a transitive dependency. The real error was several screens up from the one pip
+prints last: `fastcrc` is a Rust extension, cargo was invoked to build it from source, and
+`link.exe` failed with `link: extra operand ...  Try 'link --help'` — a GNU `link` on PATH
+answering for MSVC's linker.
+
+Not a surprise, which is why the vectors were done first: they need a second toolchain, and a
+second toolchain is the most likely thing in this work to be annoying offline. Better to find
+that out on day one than in week three.
+
+**What I tried.**
+1. Read past the last error to the first one. Two failures were reported — `target-lexicon`
+   and `memoffset`, both *build scripts*, not the crate itself. A build script failing to
+   link means the toolchain is wrong, not the source.
+2. Checked the target triple in the cargo output: `aarch64-pc-windows-msvc`. This machine is
+   Windows on ARM, and `fastcrc` publishes no win-arm64 wheel, so pip falls back to building
+   it. Nothing about the fallback is going to work without a working MSVC link.exe, and
+   fixing PATH shadowing to build a CRC library felt like the wrong thing to spend the day on.
+3. Went looking for whether the dependency was avoidable rather than fixable. `pip index
+   versions pymavlink` lists 2.4.43 as the release that introduced it; 2.4.42 computes its
+   CRC in pure Python. Installed 2.4.42 — clean, no build step, imports, packs frames.
+4. Confirmed it was a real answer and not a lucky one before building on it: packed a
+   HEARTBEAT and checked the frame against the specification by hand, and pulled the
+   `crc_extra` values for the four messages the station needs. The wire format is the wire
+   format; the version that computes the checksum in C rather than Python does not emit
+   different bytes.
+
+**What it was.** A platform gap, not a broken environment. `fastcrc` became a hard dependency
+in 2.4.43 and has no wheel for this architecture, so every pymavlink from that release on is
+uninstallable here without a C and Rust toolchain configured to agree with each other.
+
+**Carry forward.** The pin in `tools/mavlink-vectors/requirements.txt` is load-bearing and the
+reason is written there, because `pymavlink==2.4.42` next to a much newer release otherwise
+reads as neglect and the obvious "helpful" change is to bump it. Worth knowing that the pin
+costs nothing: this project uses pymavlink to emit reference bytes, and the bytes are defined
+by the protocol rather than the library.
+
+The Docker fallback — run the generator in a pinned `python:3.12-slim` — was the plan if this
+had not worked, and is still the answer for anyone who hits it on a platform where even 2.4.42
+will not build. Not needed here, so not committed; a second path nobody exercises rots.

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    Embedded rather than copied to the output directory. The vectors are not test data a developer
+    might swap out per run; they are the reference this assembly is meaningless without, so they
+    travel inside it and cannot be absent, stale, or edited between build and run. Regenerating
+    them is a deliberate act with a script behind it: tools/mavlink-vectors/generate.py.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="vectors\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Mcs.Adapters\Mcs.Adapters.csproj" />
+  </ItemGroup>
+
+</Project>

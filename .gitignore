@@ -335,6 +335,11 @@ paket-files/
 __pycache__/
 *.pyc
 
+# The virtualenv the byte-vector generator runs in. Not committed, and deliberately not
+# needed: the fixture it produces is committed, so the build and CI never install pymavlink.
+# Only someone regenerating the vectors creates this.
+.venv/
+
 # Cake - Uncomment if you are using it
 # tools/**
 # !tools/packages.config

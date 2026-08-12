@@ -6,6 +6,7 @@
     <Project Path="src/Mcs.Simulator/Mcs.Simulator.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Mcs.Adapters.Tests/Mcs.Adapters.Tests.csproj" />
     <Project Path="tests/Mcs.Api.Tests/Mcs.Api.Tests.csproj" />
     <Project Path="tests/Mcs.Core.Tests/Mcs.Core.Tests.csproj" />
     <Project Path="tests/Mcs.Integration.Tests/Mcs.Integration.Tests.csproj" />
