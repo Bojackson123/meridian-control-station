@@ -245,6 +245,10 @@ public class MavlinkFrameParserTests
 
         MavlinkFrame survivor = Assert.Single(frames);
         Assert.Equal(position.MessageId, survivor.MessageId);
+
+        //  And the reason is on the record. Resynced bytes alone would read as a noisy link, which is
+        //  the wrong fault to go and investigate when the truth is a flag this parser cannot honour.
+        Assert.True(parser.Statistics.IncompatibleFlagsRejected > 0);
     }
 
     // --- Extension fields ----------------------------------------------------------------------
@@ -557,6 +561,93 @@ public class MavlinkFrameParserTests
 
         Assert.Equal(0, parser.Statistics.SignedFramesRejected);
         Assert.Equal(1, parser.Statistics.ChecksumFailures);
+    }
+
+    /// <summary>
+    /// A signed frame whose message id has no seed cannot be checksum-verified either, so its length
+    /// claim must be corroborated before it is stepped over.
+    /// </summary>
+    /// <remarks>
+    /// The gap the case above leaves, and the one that matters more: with a known id the checksum runs
+    /// and catches the noise, but the two conditions together -- signed <i>and</i> unknown -- reach the
+    /// skip with nothing having verified anything. On a genuinely signed link that is not a corner
+    /// case but the steady state, since every frame carries the flag and most carry ids outside the
+    /// four this station decodes.
+    /// <para>
+    /// The input below delivered <b>one</b> of eight valid position reports before the corroboration
+    /// was shared with this path, and charged the other seven to <c>SignedFramesRejected</c> -- one
+    /// increment of a counter documented as a configuration mismatch, so the loss had no symptom at
+    /// all. Both assertions on the counters are therefore part of the case, not decoration.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void SignedFrameWithAnUnknownMessageId_IsNotSkippedOnItsLengthAlone()
+    {
+        const int FrameCount = 8;
+
+        MavlinkVector position = MavlinkVectors.Named("global_position_int");
+
+        //  Length 255, the signing bit set, and message id 31, which this station has no decoder for.
+        //  The claim runs 280 bytes into seven of the good frames behind it.
+        byte[] noise = [0xFD, 0xFF, 0x01, 0x00, 0x00, 0x01, 0x01, 0x1F, 0x00, 0x00];
+
+        MavlinkFrameParser parser = new();
+        parser.Append(noise);
+        for (int i = 0; i < FrameCount; i++)
+        {
+            parser.Append(position.Bytes);
+        }
+
+        List<MavlinkFrame> frames = Drain(parser);
+
+        Assert.Equal(FrameCount, frames.Count);
+        Assert.All(frames, frame => Assert.Equal(position.MessageId, frame.MessageId));
+
+        //  Booked as noise. Counting it as a rejected signed frame would report seven destroyed
+        //  position reports as a link that merely has signing switched on.
+        Assert.Equal(0, parser.Statistics.SignedFramesRejected);
+        Assert.Equal(noise.Length, parser.Statistics.BytesResynced);
+    }
+
+    /// <summary>
+    /// A signed frame carrying an unknown id and an honest length is still skipped whole, signature
+    /// included, and still counted as signed.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the corroboration: the guard above must reject a bogus claim without
+    /// costing the ordinary case its single-step skip. If a real signed frame were resynced through
+    /// instead, the scan would walk its HMAC hunting for a start byte -- thirteen bytes as close to
+    /// random as bytes get -- and the counter would read zero on a link where every frame is signed.
+    /// </remarks>
+    [Fact]
+    public void SignedFrameWithAnUnknownMessageId_AndAnHonestLength_IsSkippedAsAUnit()
+    {
+        MavlinkVector position = MavlinkVectors.Named("global_position_int");
+
+        //  Payload length 4, signed, message id 31: ten header bytes, four of payload, two of
+        //  checksum and thirteen of signature, so the frame ends exactly where the good one starts.
+        byte[] signedUnknown =
+        [
+            0xFD, 0x04, 0x01, 0x00, 0x00, 0x01, 0x01, 0x1F, 0x00, 0x00,
+            0x11, 0x22, 0x33, 0x44,
+            0x00, 0x00,
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+        ];
+
+        MavlinkFrameParser parser = new();
+        parser.Append(signedUnknown);
+        parser.Append(position.Bytes);
+
+        MavlinkFrame frame = Assert.Single(Drain(parser));
+        Assert.Equal(position.MessageId, frame.MessageId);
+
+        Assert.Equal(1, parser.Statistics.SignedFramesRejected);
+        Assert.Equal(0, parser.Statistics.UnknownMessagesSkipped);
+
+        //  Nothing scanned: the corroborated claim was stepped over in one move, which is what keeps
+        //  a signature block from being searched for start bytes.
+        Assert.Equal(0, parser.Statistics.BytesResynced);
+        Assert.Equal(0, parser.BufferedByteCount);
     }
 
     // --- Helpers ------------------------------------------------------------------------------

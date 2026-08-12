@@ -209,6 +209,10 @@ public sealed class MavlinkFrameParser
         //  the length field cannot be trusted to describe the whole frame.
         if ((incompatibleFlags & ~IncompatibleFlagSigned) != 0)
         {
+            //  Both counters, as on the checksum path: the byte is resynced, and the reason is
+            //  recorded separately because it is the one thing resync alone cannot say. Without it an
+            //  unsupported protocol feature and a failing radio are the same reading.
+            Statistics.IncompatibleFlagsRejected++;
             Statistics.BytesResynced++;
             Discard(1);
             consumed = true;
@@ -251,7 +255,17 @@ public sealed class MavlinkFrameParser
             //  parser that resynced instead would rescan them and could find a false start byte in
             //  an HMAC, which is as close to random as bytes get.
             //
-            //  Counted as signed even when the message id is unknown, and therefore unverified. Both
+            //  An unknown message id has no seed, so the checksum above did not run and the length
+            //  claim arrives here unverified -- and on a signed link that is the *ordinary* case,
+            //  since every frame carries the flag and most carry ids outside the seed table. So the
+            //  claim earns the same corroboration an unsigned unknown gets, before 280 bytes are
+            //  discarded on the word of byte 1.
+            if (!known && !LengthClaimIsCorroborated(frameLength, out consumed))
+            {
+                return false;
+            }
+
+            //  Counted as signed even where it was the unknown id that prevented verification. Both
             //  facts are true of such a frame, and signing is the more actionable one: a link
             //  configured to require it presents as this number climbing, where reporting it as
             //  unknown traffic would leave an operator with no way to learn why nothing decodes.
@@ -263,7 +277,15 @@ public sealed class MavlinkFrameParser
 
         if (!known)
         {
-            return SkipUnknownMessage(frameLength, out consumed);
+            if (!LengthClaimIsCorroborated(frameLength, out consumed))
+            {
+                return false;
+            }
+
+            Statistics.UnknownMessagesSkipped++;
+            Discard(frameLength);
+            consumed = true;
+            return false;
         }
 
         frame = MavlinkFrame.Create(
@@ -283,9 +305,15 @@ public sealed class MavlinkFrameParser
     }
 
     /// <summary>
-    /// Steps over a frame carrying a message id this station has no decoder for -- but only once its
-    /// length claim has been corroborated.
+    /// Whether the frame at the head may be stepped over as a unit, for a frame whose checksum could
+    /// not be computed and whose length claim is therefore all there is to go on.
     /// </summary>
+    /// <param name="consumed">
+    /// Meaningful only when this returns <see langword="false"/>: true where the claim was disproved
+    /// and the head discarded as noise, false where the verdict is waiting on more input. A
+    /// <see langword="true"/> return leaves it alone -- the caller consumes the frame itself, so that
+    /// the counter it books belongs to the caller's disposition rather than to this check.
+    /// </param>
     /// <remarks>
     /// <b>The problem.</b> The <c>CRC_EXTRA</c> seed is an input to the checksum, so a message with
     /// no definition here cannot be verified at all. Its length byte is the only thing saying where
@@ -309,8 +337,17 @@ public sealed class MavlinkFrameParser
     /// decision waits for one. Waiting is free here: by definition nothing is queued behind it, and
     /// accepting instead would be the one remaining way for a bogus length to swallow good frames.
     /// </para>
+    /// <para>
+    /// <b>Shared with the signed path rather than living on the unknown one.</b> It was a private
+    /// step of the unknown-message skip first, which left the identical exposure open next door: a
+    /// signed frame with an unknown id also reaches its disposition unverified, and discarded
+    /// <see cref="SignatureLength"/> further on the same untrustworthy byte -- booking the loss to
+    /// <see cref="MavlinkParserStatistics.SignedFramesRejected"/>, a counter whose documented meaning
+    /// is a configuration mismatch rather than a lost frame. Two callers with one rule is what stops
+    /// the next disposition added above from being a third such hole.
+    /// </para>
     /// </remarks>
-    private bool SkipUnknownMessage(int frameLength, out bool consumed)
+    private bool LengthClaimIsCorroborated(int frameLength, out bool consumed)
     {
         consumed = false;
 
@@ -327,10 +364,7 @@ public sealed class MavlinkFrameParser
             return false;
         }
 
-        Statistics.UnknownMessagesSkipped++;
-        Discard(frameLength);
-        consumed = true;
-        return false;
+        return true;
     }
 
     /// <summary>
