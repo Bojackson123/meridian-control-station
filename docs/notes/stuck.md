@@ -317,3 +317,70 @@ by the protocol rather than the library.
 The Docker fallback — run the generator in a pinned `python:3.12-slim` — was the plan if this
 had not worked, and is still the answer for anyone who hits it on a platform where even 2.4.42
 will not build. Not needed here, so not committed; a second path nobody exercises rots.
+
+---
+
+## 2026-08-13 — `dotnet run --project src/Mcs.Simulator` will not start from the repo root
+
+**Symptom.** Building the twelve-aircraft harness, every simulator exited immediately:
+`Simulator:Route needs at least two waypoints; it has 0. The default circuit lives in
+appsettings.json.` The file was sitting right there, in the project directory and in the output
+directory, and the same command runs perfectly in the container.
+
+**What I tried.**
+1. Checked the obvious thing first — the csproj already has the `<Content Include="appsettings.json"
+   CopyToOutputDirectory>` line, with a comment explaining that the console SDK copies nothing by
+   default. So the file was deployed. Not that.
+2. Set one route waypoint through the environment to see whether configuration was reaching the
+   binder at all. The error changed to "it has 1", which is the tell: the environment provider was
+   the *only* provider contributing a route. appsettings.json was not being read.
+3. `Host.CreateApplicationBuilder` takes its content root from `Directory.GetCurrentDirectory()`,
+   and `dotnet run --project <path>` leaves the working directory where you invoked it. Run from
+   the repository root, the simulator looks for its appsettings.json in the repository root.
+4. Confirmed both ways: `cd src/Mcs.Simulator && dotnet run` starts and flies. `dotnet run
+   --project src/Mcs.Simulator` from the root does not, and never has.
+
+**What it was.** The command in CLAUDE.md was wrong, and had been since the simulator landed —
+invisible because the container sets `WORKDIR` to the app directory, and because nobody had run the
+simulator from anywhere but its own folder. `Mcs.Api` hides it too: its appsettings are found
+because a web host's content root resolution differs, so the sibling command works and the
+asymmetry looks like the simulator being broken rather than the invocation.
+
+**Carry forward.** CLAUDE.md now says `cd src/Mcs.Simulator && dotnet run`, and
+`tools/fleet-at-twelve.*` sets the working directory explicitly with a comment saying why. The
+better fix is one line in `Program.cs` — pass `ContentRootPath = AppContext.BaseDirectory` in
+`HostApplicationBuilderSettings`, so the process reads its configuration from beside its own binary
+rather than from wherever it was launched. Not taken here: it belongs to the simulator, not to a
+console ticket, and it deserves its own commit.
+
+---
+
+## 2026-08-13 — twelve aircraft on one circle would not take off
+
+**Symptom.** With the content-root problem fixed, all twelve simulators still exited at startup:
+`A capture radius of 158.8 m needs every leg to be longer than 317.5 m, and this route's shortest
+is 14.4 m` — and then, once the route generation was right, 207 m against the same 317.5 m.
+
+**What I tried.**
+1. The 14.4 m was my own bug: a probe run that generated waypoints 0.0001 degrees apart. Real
+   numbers gave 207 m, which is what twelve points on a 400 m circle actually are.
+2. Read `WaypointFollower`'s rule rather than working around it. A leg shorter than twice the
+   capture radius means the aircraft is inside the next waypoint's capture the moment it reaches
+   this one — it captures the whole route on consecutive steps and flies none of it. The check is
+   right and rejecting is right.
+3. Three ways out, and the arithmetic decides between them. A 613 m circle satisfies it at 22 m/s
+   and does not fit the console's default view. A hand-set capture radius has to sit between the
+   turn radius (106 m) and half the leg (103 m) — an empty interval at 400 m, and at 500 m an
+   interval four metres wide, which is the boundary the follower documents as the one where
+   floating-point luck decides whether a waypoint is captured at all. Lowering the cruise speed to
+   15 m/s takes the turn radius to 49 m and the required leg to 148 m, and the circuit is
+   comfortable.
+
+**What it was.** Not a bug in anything. The turn radius is derived from cruise speed and bank
+limit on purpose, so "twelve aircraft evenly spaced on a 400 m circle" and "22 m/s" are not
+independently choosable — and the design note had quoted both, because the mockup that drew them
+had no turn dynamics in it. The note now says so.
+
+**Carry forward.** Worth remembering that this is the derived turn radius doing exactly its job:
+a configured turn rate would have let the aircraft fly a circuit it cannot actually fly and looked
+fine doing it.

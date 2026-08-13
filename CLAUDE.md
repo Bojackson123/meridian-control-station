@@ -15,7 +15,8 @@ does not honour.
 dotnet build                              # solution-wide; warnings are errors
 dotnet test                               # all six test projects; needs Docker (see below)
 dotnet run --project src/Mcs.Api          # http://localhost:5271
-dotnet run --project src/Mcs.Simulator    # flies an aircraft at 127.0.0.1:14550
+cd src/Mcs.Simulator && dotnet run        # flies an aircraft at 127.0.0.1:14550
+tools/fleet-at-twelve.ps1                 # or .sh — twelve of them, for looking at the console full
 
 # a single project / class / method
 dotnet test tests/Mcs.Core.Tests

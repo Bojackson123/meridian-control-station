@@ -122,6 +122,13 @@ jobs:
         working-directory: web
         run: npm run build
 
+      - name: Test — console
+        working-directory: web
+        #  The state language, which MCS-003 has verified by Test as well as by Inspection. A
+        #  separate step from the build for the same reason every .NET suite above has one: the
+        #  job graph names what broke without anyone opening a log.
+        run: npm run test
+
       - name: Lint web
         working-directory: web
         run: npm run lint

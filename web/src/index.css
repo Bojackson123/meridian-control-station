@@ -1,3 +1,37 @@
+/* The console's palette and its page reset.
+
+   Every colour below is `src/palette.ts`, which is where anything that draws on a canvas takes it
+   from, and `palette.test.ts` fails if the two ever disagree. Two sources were unavoidable — a
+   canvas takes a string and a stylesheet cannot be imported into one — so the drift is guarded
+   instead of prevented. The failure being guarded against is the one the design note opens with:
+   three different greys, arrived at honestly, one file at a time.
+
+   The ratios are measured against --map and are recorded in docs/notes/console-design.md §2. */
+:root {
+  --map: #080c12;        /* the map background — every ratio below is against this */
+  --panel: #0d131b;      /* the panel surface, 1.05:1 off the map */
+  --ink-bright: #eef3f8; /* live · 17.6:1 */
+  --ink: #93a6b8;        /* resting panel values · 7.8:1 */
+  --ink-dim: #6f8294;    /* lost, units, labels · 4.9:1 */
+  --amber: #e8a33d;      /* stale · 9.1:1 */
+  --critical: #ff6b6b;   /* warning · 7.1:1 — severity, never a vehicle state */
+  --rule: #2c3d4e;       /* the graticule's minor line · structure, never data */
+  --rule-lit: #3f566d;   /* the graticule's major line */
+
+  /* A row separator, dimmer than --rule: twelve of them stacked would otherwise read as a grid
+     drawn over the fleet rather than as the space between rows. */
+  --row-rule: #131c26;
+
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html,
 body,
 #root {
@@ -8,5 +42,32 @@ body,
 /* Matches the basemap's background layer. Without it the first paint is a white flash before the
    style loads, which on a dark console reads as a fault rather than a load. */
 body {
-  background: #080c12;
+  background: var(--map);
+  color: var(--ink);
+
+  /* Monospace throughout, which is a readability decision rather than a stylistic one: this screen
+     is mostly numbers that are compared down a column, and a proportional font makes the same
+     coordinate a different width in every row. */
+  font-family: var(--mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Available to anything that has a second channel on screen and needs a first one for a reader.
+   Not `display: none`, which removes it from the accessibility tree along with everything else. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }

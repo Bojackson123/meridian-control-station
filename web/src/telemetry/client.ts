@@ -33,12 +33,38 @@ const FLEET_EVENT_TYPE = 'fleet'
  * How long the stream may say nothing at all -- no frame, no fleet tick -- before it is treated as
  * dead and reopened.
  *
- * Now many multiples of the station's one-second tick rather than two of the old fifteen-second
- * heartbeat, so this is a very patient number for what it now watches. Left where it is
- * deliberately: lowering it changes what the console does when the *station* goes away, as opposed
- * to a vehicle, and those need to be different pictures rather than the same one arriving sooner.
+ * Many multiples of the station's one-second tick, and deliberately still that patient: this is
+ * the number that decides when to throw a connection away and build another, and reconnecting
+ * every three seconds through a slow moment would replace one problem with a worse one. What the
+ * console *shows* while the station is silent is a separate question with a separate and much
+ * shorter answer -- see {@link STATION_SILENT_MS}. Conflating the two is what leaves an operator
+ * looking at a live-looking fleet for forty seconds.
  */
 const SILENCE_TIMEOUT_MS = 40_000
+
+/**
+ * How often the station re-states the whole fleet. Mirrors `TelemetryEndpoints.FleetTickPeriod`,
+ * which is `TelemetryCurrency.StaleAfter / 3`.
+ */
+const FLEET_TICK_PERIOD_MS = 1_000
+
+/**
+ * How long the stream may say nothing before the console stops believing what is on screen.
+ *
+ * **Three missed ticks -- the console watches the station exactly the way MCS-002 has the station
+ * watch a vehicle.** The station cannot report its own silence any more than a vehicle can, so
+ * this is the one age the browser has to measure itself.
+ *
+ * That is not the browser computing a vehicle's age, which it may never do: a machine thirty
+ * seconds out would render a lost aircraft as live. It is the browser measuring how long *it* has
+ * been waiting, against its own monotonic timers, and about that it is the only witness there is.
+ * The two are worth keeping apart in your head, because the first is forbidden and this is
+ * required.
+ *
+ * If it ever flaps -- a red bar blinking through an ordinary slow moment -- the fix is a fourth
+ * tick and a note saying why, not a quiet nudge upwards.
+ */
+const STATION_SILENT_MS = 3 * FLEET_TICK_PERIOD_MS
 
 /**
  * How long to wait before reopening a stream the browser has given up on. Matches the retry interval
@@ -46,6 +72,23 @@ const SILENCE_TIMEOUT_MS = 40_000
  * than two.
  */
 const REOPEN_DELAY_MS = 3_000
+
+/**
+ * Whether the station is still talking to this console.
+ *
+ * Not a vehicle's state and not derived from one. Every vehicle's state is the station's judgement,
+ * arriving on the wire; this is the console's judgement of whether that wire is still carrying
+ * anything. A quiet vehicle in a healthy fleet is stale because the station said so. A quiet
+ * station leaves every vehicle's age unknown and growing, and nothing on screen may be rendered as
+ * current on the strength of a snapshot that has stopped arriving.
+ */
+export type StationLink = 'connected' | 'unreachable'
+
+/** Everything the console renders from: the fleet, and whether to believe it. */
+export interface ConsoleSnapshot {
+  fleet: Fleet
+  station: StationLink
+}
 
 /** Splits a station timestamp into whole milliseconds and the 100 ns ticks below them. */
 const arrivalOf = (receivedAtUtc: string): [number, number] => {
@@ -82,7 +125,8 @@ const compareArrival = (left: string, right: string): number => {
 }
 
 /**
- * Opens the station connection and reports the fleet whenever it changes.
+ * Opens the station connection and reports the fleet, and the connection itself, whenever either
+ * changes.
  *
  * Both paths are relative on purpose. The dev server proxies `/api` to the API and nginx does the
  * same in the deployed stack, so this file needs no notion of an environment and no base URL to
@@ -96,28 +140,44 @@ const compareArrival = (left: string, right: string): number => {
  * browser handles for you, and assuming it covers the other two is what leaves an operator watching
  * a console that stopped updating some minutes ago.
  *
- * Note what this does not do: nothing here draws. Every frame now arrives carrying the station's
- * judgement of how current it is, and while the station is unreachable the last frames stay on the
- * map at their last positions with ages that have stopped advancing. Turning both of those into
- * something an operator can see is the state language's job, and it is not built yet -- so for now
- * the disconnect is visible in the browser console and nowhere else.
+ * Note what this does not do: nothing here draws, and nothing here decides what a vehicle looks
+ * like. It reports two facts -- the fleet as the station last described it, and whether the station
+ * is still describing it -- and `vehicles/appearance.ts` turns the pair into a rendering.
  *
- * @param onFleet Called with the whole fleet after every accepted frame.
+ * @param onUpdate Called with the whole snapshot whenever any part of it changes.
  * @returns A disposer. Call it once; the connection is not reusable afterwards.
  */
-export function connectTelemetry(onFleet: (fleet: Fleet) => void): () => void {
+export function connectTelemetry(onUpdate: (snapshot: ConsoleSnapshot) => void): () => void {
   const fleet = new Map<string, VehicleFrame>()
 
   let stream: EventSource | null = null
   let snapshotRequest: AbortController | null = null
   let reopenTimer: ReturnType<typeof setTimeout> | undefined
   let silenceTimer: ReturnType<typeof setTimeout> | undefined
+  let unreachableTimer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
 
+  //  Optimistic at startup, and only for as long as STATION_SILENT_MS. Opening pessimistic would
+  //  paint STATION UNREACHABLE across every page load for the second before the first tick lands,
+  //  training whoever is watching to read the bar as decoration. There is nothing to be wrong
+  //  about in the meantime: the fleet is empty until something arrives.
+  let station: StationLink = 'connected'
+
   //  A fresh map each time rather than the live one. Twelve entries makes the copy free, and handing
-  //  out a value whose identity changes is what any future subscriber -- a vehicle panel through
-  //  useSyncExternalStore -- needs to see that anything happened at all.
-  const publish = () => onFleet(new Map(fleet))
+  //  out a value whose identity changes is what any subscriber -- the fleet panel, through React
+  //  state -- needs to see that anything happened at all.
+  const publish = () => onUpdate({ fleet: new Map(fleet), station })
+
+  //  Publishes on its own, rather than reporting a change for a caller to fold in. A station
+  //  transition happens a handful of times in a session where a frame arrives four times a second,
+  //  so the occasional second publish in the same event costs nothing and this cannot be forgotten
+  //  at a call site.
+  const setStation = (next: StationLink) => {
+    if (station === next) return
+
+    station = next
+    publish()
+  }
 
   //  Later wins, by the station's clock rather than arrival order. This is what makes the race
   //  between the snapshot and the stream a non-problem instead of something to sequence carefully:
@@ -208,15 +268,25 @@ export function connectTelemetry(onFleet: (fleet: Fleet) => void): () => void {
     const opened = new EventSource(STREAM_PATH)
     stream = opened
 
-    //  Restarted by anything at all arriving on the stream. What it is watching for is a connection
-    //  that is open at the socket and dead above it: kill the station behind a proxy and the proxy
-    //  can hold the response open with nothing on the other end of it, so the browser reports a
-    //  healthy stream, fires no error, and never retries. Measured, not assumed -- with the dev
-    //  server in front, a stopped API produced no error event in 33 seconds, and restarting it left
-    //  the console frozen on the last frame with no way back but a reload. That is the console
-    //  showing a picture it has no reason to believe is current, which is the one thing the station
-    //  is built not to do (HAZ-01), so silence has to be a fault rather than an absence of news.
-    const heardFromStation = () => {
+    //  Two watchdogs on one silence, answering two different questions.
+    //
+    //  What both are watching for is a connection that is open at the socket and dead above it:
+    //  kill the station behind a proxy and the proxy can hold the response open with nothing on the
+    //  other end of it, so the browser reports a healthy stream, fires no error, and never retries.
+    //  Measured, not assumed -- with the dev server in front, a stopped API produced no error event
+    //  in 33 seconds, and restarting it left the console frozen on the last frame with no way back
+    //  but a reload. That is the console showing a picture it has no reason to believe is current,
+    //  which is the one thing the station is built not to do (HAZ-01), so silence has to be a fault
+    //  rather than an absence of news.
+    //
+    //  The short one says so on screen; the long one throws the connection away and builds another.
+    //  They were one timer at 40 s until the state language needed the first answer, and the
+    //  forty seconds a reconnect policy wants is forty times too long to go on drawing a fleet as
+    //  live.
+    const armWatchdogs = () => {
+      clearTimeout(unreachableTimer)
+      unreachableTimer = setTimeout(() => setStation('unreachable'), STATION_SILENT_MS)
+
       clearTimeout(silenceTimer)
       silenceTimer = setTimeout(() => {
         console.warn(
@@ -230,7 +300,17 @@ export function connectTelemetry(onFleet: (fleet: Fleet) => void): () => void {
       }, SILENCE_TIMEOUT_MS)
     }
 
-    heardFromStation()
+    //  Hearing something is what marks the station reachable, and opening a connection is not
+    //  hearing something. A reopen that set this would announce a recovery on the strength of a
+    //  socket the station may have nothing behind, and it would do it every three seconds for as
+    //  long as the station was down -- a bar that flickers back to healthy while nothing is
+    //  arriving is worse than no bar.
+    const heardFromStation = () => {
+      setStation('connected')
+      armWatchdogs()
+    }
+
+    armWatchdogs()
 
     //  Both events carry an array of vehicles -- one element for a report, the whole fleet for a
     //  tick -- so the payload is parsed the same way and only what is done with it differs.
@@ -272,9 +352,15 @@ export function connectTelemetry(onFleet: (fleet: Fleet) => void): () => void {
       //  at 2 and no further attempts.
       console.warn(`Telemetry stream ${STREAM_PATH} closed; reopening in ${REOPEN_DELAY_MS} ms.`)
 
-      //  The watchdog would otherwise fire during the wait and open a second stream alongside this
-      //  one's.
+      //  Said now rather than waited for. This branch is the browser telling us the station
+      //  answered with an error or did not answer at all, which is better evidence than three
+      //  seconds of nothing -- and the reopen below is three seconds away in any case.
+      setStation('unreachable')
+
+      //  The watchdogs would otherwise fire during the wait: one opening a second stream alongside
+      //  this one's, the other restating a conclusion already reached.
       clearTimeout(silenceTimer)
+      clearTimeout(unreachableTimer)
       reopenTimer = setTimeout(open, REOPEN_DELAY_MS)
     }
 
@@ -289,6 +375,7 @@ export function connectTelemetry(onFleet: (fleet: Fleet) => void): () => void {
 
     clearTimeout(reopenTimer)
     clearTimeout(silenceTimer)
+    clearTimeout(unreachableTimer)
     snapshotRequest?.abort()
     stream?.close()
   }
