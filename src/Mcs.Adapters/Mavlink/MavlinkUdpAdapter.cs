@@ -81,12 +81,18 @@ public sealed class MavlinkUdpAdapter : IVehicleAdapter
     /// </remarks>
     private const int MaxConsecutiveReceiveErrors = 64;
 
-    /// <summary>How often the link's counters are summarised into the log, while traffic flows.</summary>
+    /// <summary>How often the link's counters are summarised into the log, traffic or no traffic.</summary>
     /// <remarks>
     /// Long enough to be background noise over a flight, short enough that a degrading link is
     /// visible in the log before someone thinks to ask. Not configurable: an operator who wants the
     /// numbers sooner is better served by an endpoint than by a knob that has to be set before the
     /// event.
+    /// <para>
+    /// <b>It fires on silence too</b>, which is the whole point and was once not true. Checking the
+    /// elapsed time after a datagram arrived made the summary conditional on the traffic it
+    /// describes, so a link that failed outright -- the one case these counters exist to explain --
+    /// printed nothing at all after the line saying it had bound. See <see cref="RunAsync"/>.
+    /// </para>
     /// </remarks>
     private static readonly TimeSpan ReportInterval = TimeSpan.FromSeconds(30);
 
@@ -198,8 +204,20 @@ public sealed class MavlinkUdpAdapter : IVehicleAdapter
 
     /// <summary>
     /// Reads datagrams until cancelled, feeding each one to the parser and draining the frames it
-    /// completes.
+    /// completes, and summarising the link on a schedule of its own.
     /// </summary>
+    /// <remarks>
+    /// <b>The summary is raced against the receive rather than checked after one.</b> Checking it
+    /// after a datagram had arrived made the report conditional on the traffic it reports on, so a
+    /// link that went silent -- a radio that failed, a simulator that stopped, a socket bound where
+    /// nothing sends -- logged the line saying it had bound and then nothing, forever. That is the
+    /// one case the counters exist to explain, and the one case they were never printed in.
+    /// <para>
+    /// Still one loop and one thread. The alternative was a second task on a timer, which would have
+    /// read the counters concurrently with the loop that writes them and made a documented
+    /// single-threaded class into one that needs its snapshots to be thread-safe to log a line.
+    /// </para>
+    /// </remarks>
     private async Task ReceiveLoopAsync(Socket socket, CancellationToken stoppingToken)
     {
         byte[] buffer = new byte[MaxDatagramBytes];
@@ -210,72 +228,122 @@ public sealed class MavlinkUdpAdapter : IVehicleAdapter
             socket.AddressFamily == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any,
             0);
 
-        long lastReportTimestamp = _timeProvider.GetTimestamp();
+        //  Held across iterations. A report firing does not end the receive that was already
+        //  outstanding: starting a second one would put two receives into one buffer, and dropping
+        //  the reference would lose the datagram this one is about to complete with.
+        Task<SocketReceiveFromResult>? pendingReceive = null;
+
+        Task reportElapsed = Task.Delay(ReportInterval, _timeProvider, stoppingToken);
+
         int consecutiveErrors = 0;
 
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            SocketReceiveFromResult received;
-
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                received = await socket
+                //  AsTask allocates once per datagram, which is what buys the ability to hold a
+                //  receive across a report. Against the 64 KB buffer it fills and the decode behind
+                //  it, at a few hundred datagrams a second, it does not register.
+                pendingReceive ??= socket
                     .ReceiveFromAsync(buffer, SocketFlags.None, sender, stoppingToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                //  Ordinary shutdown, and swallowed here rather than propagated: an adapter that
-                //  throws on a clean stop is reported by the host as a crashed background service,
-                //  every time, which is how the one line that matters gets ignored.
-                break;
-            }
-            catch (SocketException exception)
-            {
-                Statistics.ReceiveErrors++;
+                    .AsTask();
 
-                if (++consecutiveErrors >= MaxConsecutiveReceiveErrors)
+                await Task.WhenAny(pendingReceive, reportElapsed).ConfigureAwait(false);
+
+                //  The second half of the condition is not redundant: cancelling the token completes
+                //  the delay as well, and without it a stopping adapter spins here writing summaries
+                //  until the receive notices. Taking the report first where both are ready costs the
+                //  datagram one iteration -- the next pass finds it already complete -- and the
+                //  report cannot starve the receive, because it rearms for another thirty seconds.
+                if (reportElapsed.IsCompleted && !stoppingToken.IsCancellationRequested)
                 {
-                    throw new InvalidOperationException(
-                        $"The MAVLink adapter's socket on {socket.LocalEndPoint} failed "
-                        + $"{consecutiveErrors} receives in a row, so the link is not recoverable "
-                        + "by retrying. The station is stopping rather than spinning on it.",
-                        exception);
+                    reportElapsed = Task.Delay(ReportInterval, _timeProvider, stoppingToken);
+
+                    _logger.LogInformation(
+                        "MAVLink link: {Link}. Framing: {Framing}. Decode: {Decode}.",
+                        Statistics,
+                        ParserStatistics,
+                        DecoderStatistics);
+
+                    continue;
                 }
 
-                //  Absorbed. The usual cause is an ICMP rejection from a peer that has restarted,
-                //  which says nothing about this station's ability to receive the next datagram.
-                continue;
+                SocketReceiveFromResult received;
+
+                try
+                {
+                    received = await pendingReceive.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    //  Ordinary shutdown, and swallowed here rather than propagated: an adapter that
+                    //  throws on a clean stop is reported by the host as a crashed background
+                    //  service, every time, which is how the one line that matters gets ignored.
+                    pendingReceive = null;
+                    break;
+                }
+                catch (SocketException exception)
+                {
+                    //  Cleared before anything else can leave this block: a faulted receive is spent,
+                    //  and reusing it would rethrow the same error on every iteration from here on.
+                    pendingReceive = null;
+
+                    Statistics.ReceiveErrors++;
+
+                    if (++consecutiveErrors >= MaxConsecutiveReceiveErrors)
+                    {
+                        throw new InvalidOperationException(
+                            $"The MAVLink adapter's socket on {socket.LocalEndPoint} failed "
+                            + $"{consecutiveErrors} receives in a row, so the link is not "
+                            + "recoverable by retrying. The station is stopping rather than "
+                            + "spinning on it.",
+                            exception);
+                    }
+
+                    //  Absorbed. The usual cause is an ICMP rejection from a peer that has restarted,
+                    //  which says nothing about this station's ability to receive the next datagram.
+                    continue;
+                }
+
+                pendingReceive = null;
+                consecutiveErrors = 0;
+
+                Statistics.DatagramsReceived++;
+                Statistics.BytesReceived += received.ReceivedBytes;
+
+                if (Statistics.DatagramsReceived == 1)
+                {
+                    //  Once per run, and worth an Information line: it is the difference between "the
+                    //  vehicle is not talking to us" and "something arrived and was unusable", which
+                    //  no counter distinguishes at a glance and which are investigated in different
+                    //  places.
+                    _logger.LogInformation(
+                        "MAVLink UDP adapter received its first datagram, from {Sender}.",
+                        received.RemoteEndPoint);
+                }
+
+                _parser.Append(buffer.AsSpan(0, received.ReceivedBytes));
+
+                DrainFrames();
             }
-
-            consecutiveErrors = 0;
-
-            Statistics.DatagramsReceived++;
-            Statistics.BytesReceived += received.ReceivedBytes;
-
-            if (Statistics.DatagramsReceived == 1)
+        }
+        finally
+        {
+            //  The loop can leave with a receive still outstanding -- cancellation observed at the
+            //  loop condition after a report, rather than at an await -- and the caller disposes the
+            //  socket the moment this returns. Observed here so a cancelled receive does not surface
+            //  later as an unobserved task exception, attributed to whatever happens to be running.
+            if (pendingReceive is not null)
             {
-                //  Once per run, and worth an Information line: it is the difference between "the
-                //  vehicle is not talking to us" and "something arrived and was unusable", which no
-                //  counter distinguishes at a glance and which are investigated in different places.
-                _logger.LogInformation(
-                    "MAVLink UDP adapter received its first datagram, from {Sender}.",
-                    received.RemoteEndPoint);
-            }
-
-            _parser.Append(buffer.AsSpan(0, received.ReceivedBytes));
-
-            DrainFrames();
-
-            if (_timeProvider.GetElapsedTime(lastReportTimestamp) >= ReportInterval)
-            {
-                _logger.LogInformation(
-                    "MAVLink link: {Link}. Framing: {Framing}. Decode: {Decode}.",
-                    Statistics,
-                    ParserStatistics,
-                    DecoderStatistics);
-
-                lastReportTimestamp = _timeProvider.GetTimestamp();
+                try
+                {
+                    await pendingReceive.ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    //  Whatever ended it, the link is stopping and the reason for that is already
+                    //  on its way up. Rethrowing from a finally would replace it.
+                }
             }
         }
     }
