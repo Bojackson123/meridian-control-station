@@ -23,14 +23,18 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    // Stage two: levels and sinks come from the Serilog section of appsettings, so
+    // Stage two: levels come from the Serilog section of appsettings, so
     // Serilog__MinimumLevel__Default can turn logging up on a running container without a rebuild.
     // FromLogContext stays in code -- CorrelationIdMiddleware depends on it, so it is not an
-    // operator knob to be switched off.
+    // operator knob to be switched off -- and so does the sink: with it read from configuration, a
+    // container that lost its appsettings.json built a logger with no sinks, and the fatal error
+    // below went to nowhere while the process exited non-zero and silent. An operator who adds a
+    // WriteTo section gets that sink as well as this one.
     builder.Host.UseSerilog((context, services, logger) => logger
         .ReadFrom.Configuration(context.Configuration)
         .ReadFrom.Services(services)
-        .Enrich.FromLogContext());
+        .Enrich.FromLogContext()
+        .WriteTo.Console(new CompactJsonFormatter()));
 
     // Add services to the container.
     // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

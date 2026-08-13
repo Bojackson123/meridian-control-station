@@ -4,8 +4,64 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 
+  <!--
+    Serilog rather than the console logger's built-in JSON formatter, which would have cost no
+    packages at all. The two write different field names (CLEF's @t/@mt/@l against Timestamp,
+    LogLevel, Message), and this process's output is read interleaved with the API's in one
+    `docker compose logs`, where two shapes is a cost paid on every reading. Versions are pinned
+    to the same Serilog release train Mcs.Api is on, so the repository has one answer to "which
+    Serilog".
+  -->
   <ItemGroup>
-    <ProjectReference Include="..\Mcs.Core\Mcs.Core.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+
+    <!--
+      ValidateDataAnnotations lives here rather than in Microsoft.Extensions.Options. Mcs.Api gets
+      it for free from the ASP.NET Core shared framework, which is why the station's Program.cs
+      names no such package; a console host has to ask.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.10" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.1" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+  </ItemGroup>
+
+  <!--
+    Mcs.Adapters, for MavlinkFrameWriter and nothing else. That is the ticket's point: the codec
+    gets a second consumer that is not a test, and the frames this process emits are framed by the
+    same code the station un-frames them with.
+
+    Note what is deliberately not shared. MavlinkMessageId and the four message structs are
+    internal to Mcs.Adapters and stay that way. The payload writers under Mavlink/ here are
+    written independently of the station's readers, so a field offset or a byte order wrong in one
+    cannot cancel against the same mistake in the other. An InternalsVisibleTo pointing this way
+    would have saved four small files and destroyed the only thing the decode test proves.
+
+    Mcs.Core is deliberately absent. This is a vehicle, not a station: no telemetry model, no
+    store, no ingest boundary. It arrives transitively and nothing here may name it.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Mcs.Adapters\Mcs.Adapters.csproj" />
+  </ItemGroup>
+
+  <!--
+    The flight model and the payload writers are the parts with arithmetic in them, and the parts
+    a test has to reach directly: a turn radius is asserted against a closed-form answer, not
+    inferred from the bytes that eventually came out of a socket.
+  -->
+  <!--
+    The console SDK copies nothing to the output directory by default, unlike the Web one, and
+    Host.CreateApplicationBuilder reads appsettings.json from the content root. Without this line
+    the process starts, finds no Simulator section, and fails startup validation on an empty route:
+    a confusing way to be told a file was not deployed.
+  -->
+  <ItemGroup>
+    <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mcs.Simulator.Tests" />
   </ItemGroup>
 
 </Project>

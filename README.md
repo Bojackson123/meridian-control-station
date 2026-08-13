@@ -80,11 +80,12 @@ each vehicle a marker pointed along the heading it reported.
 | Map console — the fleet on the basemap, each marker oriented by heading | working; a vehicle that reported no heading is drawn without a nose rather than pointed north |
 | Persistence of domain data | not yet — the schema mechanism is proven, the tables that use it arrive with the features that define them |
 | Console state language — live / stale / lost, alerts | not yet — a dead feed shows only in the browser console |
-| Docker Compose — database, API and console, one command, offline | working |
+| Docker Compose — database, API, console and simulator, one command, offline | working |
 | MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | landed after `v0.1`, tested |
 | MAVLink message decode — the four messages the console displays, assembled into telemetry | landed after `v0.1`, tested against the same vectors |
-| MAVLink over UDP — a bound socket feeding the codec, through the ingest boundary, into the store | landed after `v0.1`, tested; **nothing sends to it yet** — the simulator that will is not written |
-| Reading MAVLink from a real vehicle | not yet — the codec, the socket and the store are wired together; what is missing is something at the other end of the link |
+| MAVLink over UDP — a bound socket feeding the codec, through the ingest boundary, into the store | landed after `v0.1`, tested |
+| Air simulator — bank-limited kinematics and a waypoint follower, transmitting MAVLink from its own process and container | landed after `v0.1`, tested; its turn radius is asserted against `v²/(g·tan φ)`, and its bytes against the station's own decoder |
+| Reading MAVLink from a real vehicle | not yet — the link is proved end to end against the simulator; nothing has been pointed at an autopilot |
 | Mission planning, deconfliction, auth | not yet |
 
 ---
@@ -95,13 +96,13 @@ each vehicle a marker pointed along the heading it reported.
 src/Mcs.Core        the domain — telemetry model, ingest boundary, bounded store
 src/Mcs.Api         ASP.NET Core host; the fake feed lives here for now
 src/Mcs.Adapters    vehicle adapters; Mavlink/ holds the hand-written v2 codec and the UDP link
-src/Mcs.Simulator   vehicle simulator (stub)
+src/Mcs.Simulator   the aircraft — kinematics, a waypoint follower, and MAVLink out over UDP
 web/                React + TypeScript + Vite console; the basemap is served from web/public
-tests/              unit tests for the core and the feed; integration tests against a real
-                    Postgres via Testcontainers; a system suite that drives the running
-                    compose stack over HTTP, and skips when no stack is up
+tests/              unit tests for the core, the feed, the codec and the aircraft; integration
+                    tests against a real Postgres via Testcontainers; a system suite that
+                    drives the running compose stack over HTTP, and skips when no stack is up
 deploy/migrations/  numbered .sql files, applied by the API on startup
-deploy/compose/     compose.yaml — the whole stack, database and API and console
+deploy/compose/     compose.yaml — the whole stack, database and API and console and aircraft
 docs/notes/         engineering notes, including what got stuck and why
 ```
 
@@ -126,9 +127,13 @@ the test of that, and it will be run against a real diff.
 
 - Single author on both sides of every interface. Nothing here has been integrated against
   software someone else wrote.
-- Simulated vehicles only.
-- One fake vehicle by default. The 12-vehicle bound is designed into the data structures and
-  tested, not demonstrated on screen — set `FakeFeed__VehicleCount=12` to see it.
+- Simulated vehicles only. The simulator's flight model is deliberately thin: constant airspeed,
+  a bank-limited turn, a bounded climb rate, and no wind, drag or mass. The one property spent
+  time on is the turn, because a later separation margin is a claim about it; a better aircraft
+  would not make the station better.
+- Two vehicles by default, one from the simulator over UDP and one from the in-process fake feed
+  that predates it. The fake one is on its way out. The 12-vehicle bound is designed into the data
+  structures and tested, not demonstrated on screen — set `FakeFeed__VehicleCount=12` to see it.
 - Telemetry is in-memory and bounded. There is no durable history, and that is a stated
   non-goal rather than a gap.
 - No authentication. Anything the API exposes is exposed to anyone who can reach it.
@@ -153,9 +158,10 @@ the test of that, and it will be run against a real diff.
   — height above the point the vehicle armed at — is decoded and deliberately unused, because it
   equals height above the ground only over flat terrain and there is no terrain model here to
   make the conversion honest.
-- Fault flags are stubbed. `SYS_STATUS`'s sensor-health bitmasks are decoded and read by nothing,
-  and the link status the API reports is always healthy: a decoded frame is one that arrived, so
-  this path holds no evidence of a degraded link. Whether a vehicle has gone quiet is a question
+- Fault flags are stubbed at both ends. The simulator sends one healthy sensor mask, always;
+  `SYS_STATUS`'s sensor-health bitmasks are decoded and read by nothing; and the link status the
+  API reports is always healthy, because a decoded frame is one that arrived, so this path holds
+  no evidence of a degraded link. Whether a vehicle has gone quiet is a question
   about the station's clock, and nothing answers it yet — see the last item below.
 - Nothing on screen yet distinguishes a vehicle reporting now from one that stopped ten
   minutes ago.
@@ -166,8 +172,8 @@ the test of that, and it will be run against a real diff.
 
 In order, without dates:
 
-- **A real vehicle link.** MAVLink from a simulator process, replacing the in-process fake
-  feed with an adapter and a wire format.
+- **Deleting the fake feed.** The MAVLink path now carries a real aircraft end to end; the two
+  run side by side for exactly as long as it takes to compare them.
 - **A console state language.** Live, stale and lost as things an operator can see, so the
   last limitation above stops being one.
 - **Commands and tasking.** A command lifecycle with a durable audit trail, behind an
