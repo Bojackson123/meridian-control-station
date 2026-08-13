@@ -157,6 +157,11 @@ export function connectTelemetry(onUpdate: (snapshot: ConsoleSnapshot) => void):
   let unreachableTimer: ReturnType<typeof setTimeout> | undefined
   let disposed = false
 
+  //  Bumped by every fleet tick, and read by a snapshot in flight. A tick is the station's complete
+  //  statement of who exists; this is the only thing that lets an answer to an older question tell
+  //  that a newer one has been asked and answered.
+  let fleetGeneration = 0
+
   //  Optimistic at startup, and only for as long as STATION_SILENT_MS. Opening pessimistic would
   //  paint STATION UNREACHABLE across every page load for the second before the first tick lands,
   //  training whoever is watching to read the bar as decoration. There is nothing to be wrong
@@ -208,6 +213,8 @@ export function connectTelemetry(onUpdate: (snapshot: ConsoleSnapshot) => void):
   //  subscription carries frames and a removal is not one, so without this a forgotten vehicle
   //  would sit on the map at its last position until the page was reloaded.
   const replaceFleet = (frames: VehicleFrame[]) => {
+    fleetGeneration += 1
+
     const present = new Set(frames.map((frame) => frame.vehicleId))
 
     let changed = false
@@ -233,8 +240,19 @@ export function connectTelemetry(onUpdate: (snapshot: ConsoleSnapshot) => void):
   //  worth most: the fleet moved while the console was disconnected, and one request corrects every
   //  vehicle at once instead of waiting for each to report itself.
   const seed = () => {
+    //  Whatever the last call left in flight is abandoned rather than left to land. This runs on
+    //  every reopen, so an outage that reconnects every three seconds otherwise accumulates one
+    //  uncancellable fetch per attempt, each carrying a fleet that was current when it was asked
+    //  for. The disposer can only abort the newest of them; the rest go on to publish into a
+    //  console that has been torn down, which is `onUpdate` firing after the disposer returned.
+    snapshotRequest?.abort()
+
     const request = new AbortController()
     snapshotRequest = request
+
+    //  The fleet's membership as of the moment this was asked for. What it is compared against is
+    //  below, where the answer arrives.
+    const issuedAt = fleetGeneration
 
     fetch(SNAPSHOT_PATH, { signal: request.signal })
       .then((response) => {
@@ -249,12 +267,26 @@ export function connectTelemetry(onUpdate: (snapshot: ConsoleSnapshot) => void):
         //  event in the operator's terms, and a full fleet would otherwise redraw the layer twelve
         //  times.
         let changed = false
-        for (const frame of frames) changed = admit(frame) || changed
+        for (const frame of frames) {
+          //  A vehicle this answer knows and the fleet does not is one a tick dropped while the
+          //  request was in flight. `admit` settles the snapshot-against-stream race on arrival
+          //  time, but it has nothing to compare against for a vehicle that is absent, so without
+          //  this the snapshot puts a forgotten vehicle back on the map at the position it held
+          //  before the station let go of it -- and it stays there until the next tick removes it
+          //  again, or forever if the tick that dropped it was the last one to arrive.
+          //
+          //  Only when a tick has actually landed since. Otherwise this is the seed doing its job
+          //  on an empty fleet, and every vehicle in it is absent by definition.
+          if (fleetGeneration !== issuedAt && !fleet.has(frame.vehicleId)) continue
+
+          changed = admit(frame) || changed
+        }
 
         if (changed) publish()
       })
       .catch((error: unknown) => {
-        //  An aborted fetch is this client being disposed, not a fault.
+        //  An aborted fetch is this client being disposed, or a later seed replacing this one.
+        //  Neither is a fault.
         if (request.signal.aborted) return
 
         //  Not fatal: the stream still fills the map in, one vehicle at a time, as each reports.

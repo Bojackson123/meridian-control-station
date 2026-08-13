@@ -61,7 +61,12 @@ export function formatSpeed(frame: VehicleFrame, appearance: VehicleAppearance):
  * to read `087°` beside a marker that has stopped claiming to know.
  */
 export function formatHeading(appearance: VehicleAppearance): string {
-  if (appearance.headingDegrees === null) return NO_READING.heading
+  //  Tested for being a number rather than against `null`, for the same reason `shapeFor` is: a
+  //  frame is cast from `JSON.parse` and never validated, so a heading nobody sent reaches the
+  //  appearance as `undefined` whenever the key was omitted rather than nulled, and travels through
+  //  it intact. `=== null` misses that and rounds `undefined`, printing `NaN°` in the row beside a
+  //  marker that has correctly declined to point.
+  if (typeof appearance.headingDegrees !== 'number') return NO_READING.heading
 
   return `${String(Math.round(appearance.headingDegrees) % 360).padStart(3, '0')}°`
 }
