@@ -81,9 +81,10 @@ each vehicle a marker pointed along the heading it reported.
 | Persistence of domain data | not yet — the schema mechanism is proven, the tables that use it arrive with the features that define them |
 | Console state language — live / stale / lost, alerts | not yet — a dead feed shows only in the browser console |
 | Docker Compose — database, API and console, one command, offline | working |
-| MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | landed after `v0.1`; **not wired to a link** — nothing yet feeds it from a socket |
-| MAVLink message decode — the four messages the console displays, assembled into telemetry | landed after `v0.1`, tested against the same vectors; **still not wired to a link** |
-| Reading MAVLink from a real vehicle | not yet — the codec and the assembly are there, the socket and the simulator are not |
+| MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | landed after `v0.1`, tested |
+| MAVLink message decode — the four messages the console displays, assembled into telemetry | landed after `v0.1`, tested against the same vectors |
+| MAVLink over UDP — a bound socket feeding the codec, through the ingest boundary, into the store | landed after `v0.1`, tested; **nothing sends to it yet** — the simulator that will is not written |
+| Reading MAVLink from a real vehicle | not yet — the codec, the socket and the store are wired together; what is missing is something at the other end of the link |
 | Mission planning, deconfliction, auth | not yet |
 
 ---
@@ -93,7 +94,7 @@ each vehicle a marker pointed along the heading it reported.
 ```
 src/Mcs.Core        the domain — telemetry model, ingest boundary, bounded store
 src/Mcs.Api         ASP.NET Core host; the fake feed lives here for now
-src/Mcs.Adapters    vehicle adapters; Mavlink/ holds the hand-written v2 framing codec
+src/Mcs.Adapters    vehicle adapters; Mavlink/ holds the hand-written v2 codec and the UDP link
 src/Mcs.Simulator   vehicle simulator (stub)
 web/                React + TypeScript + Vite console; the basemap is served from web/public
 tests/              unit tests for the core and the feed; integration tests against a real
@@ -111,10 +112,13 @@ Adding a ground vehicle later should mean writing a new adapter and changing no 
 core that has grown a web, database or protocol dependency makes that claim indefensible.
 
 `Mcs.Core` therefore has no package references at all, and its project file being empty is
-what enforces it. The fake feed sits in the API host rather than in `Mcs.Adapters` precisely
-because it is not an adapter: it invents telemetry instead of decoding any wire format. The
-MAVLink framing codec, which does decode one, is the first thing to live in `Mcs.Adapters` —
-and it stays clear of the core, because MAVLink is a protocol and the core is vehicle-agnostic.
+what enforces it. What the core does hold is the contract every telemetry source implements —
+start producing telemetry until stopped, and nothing else. It was written only once there were
+two implementations to derive it from, so it describes what they have in common rather than
+what one of them happens to do: the MAVLink link in `Mcs.Adapters`, which decodes a wire
+format, and the fake feed, which stays in the API host because it invents telemetry instead of
+decoding anything. Whether the M3 ground vehicle can be added without touching a core file is
+the test of that, and it will be run against a real diff.
 
 ---
 
@@ -138,6 +142,13 @@ and it stays clear of the core, because MAVLink is a protocol and the core is ve
 - The MAVLink codec decodes four message types, the ones the console displays. A frame carrying
   any other message id is counted and skipped, and cannot be checksum-verified at all, because
   the checksum seed is per-message.
+- **The MAVLink link accepts datagrams from anyone who can reach it.** The adapter binds every
+  interface by default, because the simulator sends to it from another container, and nothing
+  authenticates a sender — signing is not implemented, per the entry above. Since the store admits
+  twelve vehicles and never reclaims a slot on its own, a sender that can reach the port can
+  occupy the whole fleet with invented system ids, after which every genuine vehicle is refused
+  until the station is restarted. Set `Adapters__Mavlink__ListenAddress` to a specific interface
+  on any network you do not control.
 - A vehicle's altitude is reported above mean sea level and nothing converts it. `relative_alt`
   — height above the point the vehicle armed at — is decoded and deliberately unused, because it
   equals height above the ground only over flat terrain and there is no terrain model here to

@@ -56,6 +56,12 @@ internal sealed class StationApplication : WebApplicationFactory<Program>
             //  these tests are about, and it writes a log line per frame per vehicle.
             ["FakeFeed:VehicleCount"] = "1",
             ["FakeFeed:RateHz"] = "0.1",
+
+            //  An ephemeral port, because the station really does bind one. On the configured
+            //  14550 these tests would fail against a developer's own station running beside them,
+            //  and two of them in one process would fail against each other -- both as a bind error
+            //  in a suite that is about the database.
+            ["Adapters:Mavlink:Port"] = "0",
         };
 
         foreach (KeyValuePair<string, string?> setting in _settings)

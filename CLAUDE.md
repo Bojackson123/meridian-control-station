@@ -22,10 +22,14 @@ dotnet test tests/Mcs.Core.Tests --filter "FullyQualifiedName~InMemoryTelemetryS
 dotnet test tests/Mcs.Core.Tests --filter "FullyQualifiedName~InMemoryTelemetryStoreTests.Write_ThrowsWhenAFurtherVehicleWouldExceedTheCap"
 ```
 
-`tests/Mcs.Core.Tests`, `tests/Mcs.Api.Tests` and `tests/Mcs.Adapters.Tests` are pure unit tests
-and need nothing — in particular the MAVLink suite needs no Python, because its byte vectors are
-committed. `tests/Mcs.Integration.Tests` starts a real Postgres via Testcontainers, so **Docker
-must be running** or that project fails.
+`tests/Mcs.Core.Tests`, `tests/Mcs.Api.Tests` and `tests/Mcs.Adapters.Tests` need no Docker and no
+Python — in particular the MAVLink suite's byte vectors are committed rather than generated. The
+adapter tests in `Mcs.Adapters.Tests` do bind a loopback UDP socket on an ephemeral port, because
+the two things they exist to prove — that a datagram boundary is not a frame boundary, and that the
+receive loop survives what a link does to it — are properties of the socket path.
+
+`tests/Mcs.Integration.Tests` starts a real Postgres via Testcontainers, so **Docker must be
+running** or that project fails.
 
 `tests/Mcs.System.Tests` drives the running compose stack over HTTP and **skips itself when no
 stack is listening**, so it stays out of the way of the inner loop:
@@ -74,9 +78,9 @@ Compose). CI reads the version files rather than restating any of them.
 ## Architecture
 
 ```
-src/Mcs.Core        domain: telemetry model, ingest boundary, bounded store
+src/Mcs.Core        domain: telemetry model, ingest boundary, bounded store, IVehicleAdapter
 src/Mcs.Api         ASP.NET Core host; fake feed, persistence, observability live here
-src/Mcs.Adapters    vehicle adapters; the hand-written MAVLink v2 framing codec lives in Mavlink/
+src/Mcs.Adapters    vehicle adapters; Mavlink/ holds the v2 framing codec and the UDP link
 src/Mcs.Simulator   stub until the air simulator lands
 web/                React + TypeScript + Vite + MapLibre console
 web/public/basemap  the offline MapLibre style; its rationale lives in the file's `metadata`
@@ -86,7 +90,9 @@ tests/              unit (Core, Api, Adapters) · integration (real Postgres) ·
 ```
 
 **`Mcs.Core` has zero package references and must keep them.** No logger, no web, no
-database. `Mcs.Core.csproj` being empty is the enforcement.
+database. `Mcs.Core.csproj` being empty is the enforcement. `Mcs.Adapters` has exactly two —
+`Microsoft.Extensions.Logging.Abstractions` and `Microsoft.Extensions.Options`, both used only by the
+adapter that owns a socket and a config section, neither reachable from the codec under `Mavlink/`.
 
 ### The load-bearing type distinction
 
@@ -105,6 +111,33 @@ fan-out, as one critical section; readers never take that gate. Splitting the wr
 the gate produces duplicate delivery or silent loss — `docs/notes/stuck.md` (2026-08-08)
 works through all three placements. Bounds are system-wide commitments on `ITelemetryStore`:
 12 vehicles, 600 frames each, 256-frame drop-oldest subscriber queues.
+
+### The adapter boundary
+
+`IVehicleAdapter` is `Name` plus `RunAsync(CancellationToken)` and nothing else. It lives in
+`Mcs.Core` because it is the vehicle-agnostic contract, and it was written only once there were two
+implementations to derive it from — `FakeVehicleFeed` and `MavlinkUdpAdapter` — so it describes what
+they share rather than what either one does. **There is no command member** (that direction is M2's,
+and a signature with no caller is a guess) and **no statistics member**: each adapter counts what its
+own link can go wrong in, so a common counter shape would be invented rather than observed.
+
+It is deliberately not `IHostedService` — that is a hosting type and `Mcs.Core` takes no packages.
+`Mcs.Api`'s `VehicleAdapterService` is the whole of the hosting dependency: it resolves every
+registered adapter and runs them under one `Task.WhenAll`. **A faulting adapter is left to reach the
+host and stop it**, because an adapter that died quietly is a console that has stopped updating and
+does not say so. Cancellation, by contrast, must never escape `RunAsync`, or a clean shutdown is
+reported as a crashed background service every time.
+
+`MavlinkUdpAdapter` binds inside `RunAsync` rather than in its constructor, so a stopped adapter does
+not hold the port. **A datagram is not a frame** in either direction: every datagram is appended to
+the streaming parser and the parser is drained, so one datagram carrying three frames delivers three
+and a frame split across two datagrams is not lost. **The ingest receipt is taken per frame, inside
+that drain loop** — a receipt completes exactly once, so hoisting it to the datagram throws on the
+second frame of a datagram carrying two. A malformed datagram, a socket error and a vehicle the store
+refused are all counted and survivable; a bind failure is fatal and names the setting, because a
+socket bound to the wrong interface behaves exactly like a healthy one nothing is sending to.
+**Nothing in the adapter decides a vehicle is gone** — silence is staleness, and staleness is measured
+against the station clock elsewhere.
 
 ### The MAVLink codec and its byte vectors
 

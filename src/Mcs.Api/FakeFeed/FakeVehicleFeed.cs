@@ -20,8 +20,15 @@ namespace Mcs.Api.FakeFeed;
 /// frame, before any state is computed, so a frame's age measures the time since the tick fired
 /// rather than since the arithmetic finished (MCS-005).
 /// </para>
+/// <para>
+/// <b>An <see cref="IVehicleAdapter"/>, despite having no vehicle behind it.</b> It is half the
+/// evidence that interface was derived rather than imagined: a contract written to fit a socket and
+/// then implemented only by that socket would describe the MAVLink adapter under a general-sounding
+/// name. This one shares nothing with it below the surface -- no link, no bytes, no sender -- so
+/// what the two have in common is what genuinely generalises.
+/// </para>
 /// </remarks>
-public sealed class FakeVehicleFeed : BackgroundService
+public sealed class FakeVehicleFeed : IVehicleAdapter
 {
     //  Two digits so ids sort lexicographically: "UAV-9" after "UAV-10" is a papercut for the sake of
     //  one character.
@@ -89,7 +96,10 @@ public sealed class FakeVehicleFeed : BackgroundService
     }
 
     /// <inheritdoc />
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public string Name => "fake-feed";
+
+    /// <inheritdoc />
+    public async Task RunAsync(CancellationToken stoppingToken)
     {
         //  Monotonic: the course is evaluated at elapsed time, and a wall-clock difference would fly
         //  the vehicle backwards through an NTP correction.
