@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 
+using Mcs.Adapters.Mavlink;
+using Mcs.Api.Adapters;
 using Mcs.Api.FakeFeed;
 using Mcs.Api.Observability;
 using Mcs.Api.Persistence;
@@ -54,7 +56,24 @@ try
         .ValidateDataAnnotations()
         .ValidateOnStart();
 
-    builder.Services.AddHostedService<FakeVehicleFeed>();
+    // Same treatment, and it matters more here: an address that binds but receives nothing is
+    // indistinguishable from a vehicle that is not transmitting, so the section is checked before
+    // the socket is opened rather than diagnosed from an empty map afterwards.
+    builder.Services
+        .AddOptions<MavlinkAdapterOptions>()
+        .Bind(builder.Configuration.GetSection(MavlinkAdapterOptions.SectionName))
+        .ValidateDataAnnotations()
+        .ValidateOnStart();
+
+    // Both sources, running side by side. The fake feed is what the console has shown since the
+    // first tag and it stays until the simulator can replace it -- the real path is built next to a
+    // working display, never into a void, so that a real aircraft behaving oddly is judged against a
+    // known-good one flying beside it. One of these two is deleted, not disabled, once that
+    // comparison has been made.
+    builder.Services.AddSingleton<IVehicleAdapter, FakeVehicleFeed>();
+    builder.Services.AddSingleton<IVehicleAdapter, MavlinkUdpAdapter>();
+
+    builder.Services.AddHostedService<VehicleAdapterService>();
 
     // Nothing durable is written yet -- mission plans, the command lifecycle, overrides and alert
     // acknowledgements are what this database exists for, and each arrives with the feature that

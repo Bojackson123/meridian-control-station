@@ -4,13 +4,11 @@ using System.Net.ServerSentEvents;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using Mcs.Api.FakeFeed;
 using Mcs.Api.Persistence;
 using Mcs.Api.Telemetry;
 using Mcs.Core;
 
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 
 namespace Mcs.Integration.Tests;
 
@@ -91,7 +89,7 @@ public class TelemetryApiTests
         // empty map.
         await using StationApplication application = await StartAsync(
             nameof(Vehicles_WhenNothingHasReported_IsAnEmptyArrayRatherThanNotFound),
-            configureServices: RemoveTheFakeFeed);
+            configureServices: RemoveEveryAdapter);
         using HttpClient client = application.CreateClient();
 
         using HttpResponseMessage response = await client.GetAsync(TelemetryEndpoints.SnapshotPath);
@@ -319,17 +317,26 @@ public class TelemetryApiTests
     }
 
     /// <summary>
-    /// Drops <see cref="FakeVehicleFeed"/> so the store stays empty, leaving every other hosted
-    /// service -- notably the migration -- in place.
+    /// Drops every telemetry source so the store stays empty, leaving every hosted service --
+    /// notably the migration -- in place.
     /// </summary>
-    private static void RemoveTheFakeFeed(IServiceCollection services)
+    /// <remarks>
+    /// Every adapter rather than just the fake feed, because "nothing has reported" is the state
+    /// under test and a second source that happens to be silent would make it true by luck. The
+    /// service that runs them stays registered and starts with nothing to run, which is a state the
+    /// station is expected to survive.
+    /// </remarks>
+    private static void RemoveEveryAdapter(IServiceCollection services)
     {
-        ServiceDescriptor feed = Assert.Single(
-            services,
-            descriptor => descriptor.ServiceType == typeof(IHostedService)
-                && descriptor.ImplementationType == typeof(FakeVehicleFeed));
+        ServiceDescriptor[] adapters = [.. services.Where(
+            descriptor => descriptor.ServiceType == typeof(IVehicleAdapter))];
 
-        services.Remove(feed);
+        Assert.NotEmpty(adapters);
+
+        foreach (ServiceDescriptor adapter in adapters)
+        {
+            services.Remove(adapter);
+        }
     }
 
     /// <summary>

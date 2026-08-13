@@ -1,5 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Two abstraction packages, and no more. Mcs.Core's rule is zero package references and it keeps
+    them; this project is one layer out, where an adapter owns a socket and a configuration section,
+    and hand-rolling an options binder or a logging interface to avoid naming the two packages the
+    host already loads would be a cost with nothing on the other side of it. Note what is not here:
+    the codec below this needs neither, and nothing in Mavlink/ outside the adapter references them.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Mcs.Core\Mcs.Core.csproj" />
   </ItemGroup>
