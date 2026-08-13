@@ -34,6 +34,17 @@ set -euo pipefail
 COUNT="${1:-12}"
 TARGET_PORT="${2:-14550}"
 
+# Four is the floor, and the simulator's own configuration is what sets it: appsettings.json defines
+# a four-waypoint square, the route below is supplied as environment overrides, and the configuration
+# binder *merges* the two by index. A fleet route of three points therefore leaves the square's
+# fourth corner in play, and the aircraft fly three points of a circle and then a leg to a corner
+# half a kilometre away -- which looks like a bug in the follower rather than in this script. For a
+# single aircraft, run the simulator directly: cd src/Mcs.Simulator && dotnet run.
+if (( COUNT < 4 || COUNT > 24 )); then
+    echo "Count must be between 4 and 24; got $COUNT. See the comment above this check." >&2
+    exit 1
+fi
+
 # The circuit, matching the one aircraft's own: a 400 m circle about the Huntsville origin the
 # simulator's appsettings.json flies a square around. Twelve waypoints rather than four, so that
 # twelve aircraft can each start at one.
@@ -57,10 +68,29 @@ CRUISE_SPEED_MPS=15
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 project="$repo_root/src/Mcs.Simulator"
 
-# Built once, then run twelve times without rebuilding. Twelve concurrent `dotnet run` invocations
-# race each other over one obj/ directory and fail in ways that read as compiler bugs.
+# Built once, here, so that launching twelve aircraft is twelve process starts and no compilation.
+# It is also what produces the executable the launch below needs; twelve `dotnet run` invocations
+# would each consider building, and racing each other over one obj/ directory fails in ways that read
+# as compiler bugs.
 echo 'Building the simulator...'
 dotnet build "$project" -c Release --nologo >/dev/null
+
+# The executable itself, launched below instead of `dotnet run`.
+#
+# `dotnet run` starts the application as a *child* process and waits on it, so what this script
+# recorded and later killed was a launcher with the aircraft underneath it -- and a simulator that
+# survives its launcher goes on transmitting at a station that has moved on, with nothing left to
+# find it by but the process list. Launching the built executable with `exec` below makes the
+# recorded pid the aircraft's own.
+#
+# Found rather than composed from a hardcoded path, so the target framework lives in the project
+# file alone. Newest wins, since a stale build under an older framework would otherwise be picked.
+executable="$(ls -t "$project"/bin/Release/*/Mcs.Simulator 2>/dev/null | head -n 1 || true)"
+
+if [[ -z "$executable" ]]; then
+    echo "The build succeeded but no Mcs.Simulator executable was found under $project/bin/Release." >&2
+    exit 1
+fi
 
 # North and east from the centre, then back to degrees. A flat-earth projection over 400 m, which is
 # the same approximation the simulator's own LocalProjection makes. awk rather than bash arithmetic
@@ -115,15 +145,19 @@ for ((index = 0; index < COUNT; index++)); do
 
     #  The configuration binder reads the environment, and there is no command line for a route.
     #
-    #  Started from inside the project directory, which is load-bearing: `dotnet run --project`
-    #  leaves the working directory where it was and Host.CreateApplicationBuilder takes its content
-    #  root from there, so a simulator launched from the repository root finds no appsettings.json,
-    #  binds an empty Route, and fails startup validation on a file sitting beside its own project.
+    #  Started from inside the project directory, which is load-bearing: Host.CreateApplicationBuilder
+    #  takes its content root from the working directory, so a simulator launched from the repository
+    #  root finds no appsettings.json, binds an empty Route, and fails startup validation on a file
+    #  sitting beside its own project.
+    #
+    #  `exec` replaces the subshell with the aircraft rather than leaving one waiting on the other,
+    #  so $! below is the process the teardown has to kill. Without it the recorded pid is a shell
+    #  whose death the simulator never hears about.
     (
         cd "$project"
-        env "Simulator__SystemId=$system_id" "Simulator__TargetPort=$TARGET_PORT" \
+        exec env "Simulator__SystemId=$system_id" "Simulator__TargetPort=$TARGET_PORT" \
             "Simulator__CruiseSpeedMetersPerSecond=$CRUISE_SPEED_MPS" "${route[@]}" \
-            dotnet run -c Release --no-build >/dev/null
+            "$executable" >/dev/null
     ) &
 
     pids+=("$!")
@@ -132,7 +166,7 @@ for ((index = 0; index < COUNT; index++)); do
 done
 
 echo
-echo "Twelve aircraft transmitting to 127.0.0.1:$TARGET_PORT."
+echo "$COUNT aircraft transmitting to 127.0.0.1:$TARGET_PORT."
 echo 'Kill one with  kill <pid>  to watch a vehicle go stale and then lost.'
 echo 'Ctrl-C stops them all.'
 echo

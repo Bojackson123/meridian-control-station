@@ -29,6 +29,13 @@
     How many aircraft. Twelve is the store's ceiling and the number the layout was designed at;
     a thirteenth is rejected by the store, which is worth watching once on purpose.
 
+    Four is the floor, and it is the simulator's own configuration that sets it: appsettings.json
+    defines a four-waypoint square, the route below is supplied as environment overrides, and the
+    configuration binder *merges* the two by index. A fleet route of three points therefore leaves
+    the square's fourth corner in play, and the aircraft fly three points of a circle and then a
+    leg to a corner half a kilometre away. For a single aircraft, run the simulator directly:
+    cd src/Mcs.Simulator; dotnet run.
+
 .PARAMETER TargetPort
     The station's UDP port. Matches the adapter's default.
 
@@ -41,7 +48,9 @@
 
 [CmdletBinding()]
 param(
-    [ValidateRange(1, 24)]
+    #  Four, not one: see .PARAMETER Count. A shorter route does not replace the simulator's own,
+    #  it overlays it, and the leftover waypoint is invisible until an aircraft flies at it.
+    [ValidateRange(4, 24)]
     [int] $Count = 12,
 
     [ValidateRange(1, 65535)]
@@ -77,11 +86,31 @@ $metersPerDegreeLongitude = $metersPerDegreeLatitude * [Math]::Cos($originLatitu
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $project = Join-Path $repoRoot 'src/Mcs.Simulator'
 
-# Built once, then run twelve times without rebuilding. Twelve concurrent `dotnet run` invocations
-# race each other over one obj/ directory and fail in ways that read as compiler bugs.
+# Built once, here, so that launching twelve aircraft is twelve process starts and no compilation.
+# It is also what produces the executable the launch below needs; twelve `dotnet run` invocations
+# would each consider building, and racing each other over one obj/ directory fails in ways that
+# read as compiler bugs.
 Write-Host 'Building the simulator...'
 & dotnet build $project -c Release --nologo | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "dotnet build failed with exit code $LASTEXITCODE." }
+
+# The executable itself, launched below instead of `dotnet run`.
+#
+# `dotnet run` starts the application as a *child* process and waits on it, so the pid this script
+# recorded was the launcher's. Stopping that on Windows leaves the aircraft flying -- there is no
+# job object taking the tree with it -- which is exactly the orphaned simulator the teardown at the
+# bottom exists to prevent, transmitting at a station that has moved on with nothing left to find it
+# by but the process list. Launching the built executable makes the recorded pid the aircraft's own.
+#
+# Found rather than composed from a hardcoded path, so the target framework lives in the project
+# file alone. Newest wins, since a stale build under an older framework would otherwise be picked.
+$executable = Get-ChildItem -Path (Join-Path $project 'bin/Release') -Filter 'Mcs.Simulator.exe' -Recurse -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
+if (-not $executable) {
+    throw "The build succeeded but no Mcs.Simulator.exe was found under $project/bin/Release."
+}
 
 $waypoints = @(0..($Count - 1) | ForEach-Object {
     $bearing = 2.0 * [Math]::PI * $_ / $Count
@@ -118,12 +147,11 @@ try {
         # than passed as arguments -- the configuration binder reads the environment and there is no
         # command line for a route.
         #
-        # -WorkingDirectory is load-bearing. `dotnet run --project` leaves the working directory
-        # where it was, and Host.CreateApplicationBuilder takes its content root from there -- so a
-        # simulator started from the repository root finds no appsettings.json, binds an empty
-        # Route, and fails startup validation on a file sitting right beside its own project.
-        $process = Start-Process -FilePath 'dotnet' `
-            -ArgumentList 'run', '-c', 'Release', '--no-build' `
+        # -WorkingDirectory is load-bearing. Host.CreateApplicationBuilder takes its content root
+        # from the working directory, so a simulator started from the repository root finds no
+        # appsettings.json, binds an empty Route, and fails startup validation on a file sitting
+        # right beside its own project.
+        $process = Start-Process -FilePath $executable.FullName `
             -WorkingDirectory $project `
             -PassThru -WindowStyle Hidden
 

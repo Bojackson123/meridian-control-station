@@ -26,7 +26,8 @@ anything that doesn't. It does not connect to real aircraft.
 The same discipline in more detail: [`docs/requirements.md`](docs/requirements.md) states what the
 station is required to do and how each requirement is verified — including the two that are not,
 and the one that is only half-verified — and [`docs/what-can-go-wrong.md`](docs/what-can-go-wrong.md)
-is where those requirements came from.
+is where those requirements came from. [`docs/interfaces.md`](docs/interfaces.md) is the contract
+itself: what a vehicle has to supply, in which units, and what the station serves back.
 
 ---
 
@@ -241,27 +242,13 @@ returning it — so it could not print a stream even if the flag existed. `curl.
 `System32` on Windows 10 and 11 and takes the flags above verbatim. `jq` does not ship with
 Windows; drop the pipe and read the JSON raw, or install it.
 
-```
-event: telemetry
-data: {"vehicleId":"MAV-001","latitudeDegrees":34.7336141,"longitudeDegrees":-86.5886270,
-       "altitude":{"meters":330.75,"reference":"Msl"},"groundSpeedMetersPerSecond":22,
-       "headingDegrees":86,"batteryPercent":95,"linkStatus":"Healthy",
-       "receivedAtUtc":"2026-08-13T12:56:58.1210597+00:00"}
-```
+**The wire contract lives in [`docs/interfaces.md`](docs/interfaces.md)** — the payload shape, both
+event types, the units a vehicle must send in, and what gets rejected. One copy, because two copies
+of a wire example diverge and the one that diverges is always the one somebody integrated against.
 
-`groundSpeedMetersPerSecond`, `headingDegrees` and `batteryPercent` are nullable and arrive as
-`null` when the vehicle did not report them — never as `0`, which is a speed, a bearing and a
-flat battery respectively. A client that substitutes a number for one of them puts a claim on
-screen that no vehicle made.
-
-Wrapped here to fit the page — on the wire each `data:` is a single line, because a raw
-newline inside one would break SSE framing. After fifteen seconds of silence the stream sends
-an `event: heartbeat` instead, so an idle connection is not dropped by a proxy that thinks it
-has gone away.
-
-Two things the payload is careful about: the altitude carries the reference it was measured
-against, never a bare number, and `receivedAtUtc` is the station's own observation of when the
-frame arrived — not a time the vehicle claimed. Staleness is derived from it.
+Two things worth knowing before reading it: the altitude carries the reference it was measured
+against, never a bare number, and every vehicle arrives with the station's own judgement of how
+current it is — a `state` and an age — rather than the ingredients for a consumer to compute one.
 
 `/openapi/v1.json` serves the OpenAPI document in Development.
 

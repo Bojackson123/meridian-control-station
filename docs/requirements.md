@@ -88,8 +88,8 @@ any change to how the console renders.
 **Rationale.** Three seconds is 3× the slowest configured telemetry period (1 Hz), which is what
 distinguishes network jitter from link loss: a vehicle at 1 Hz must miss three consecutive reports
 to reach it, and the two or three datagrams a busy link drops in a row do not. **Station clock, not
-vehicle clock** — vehicle time is untrusted, and `VehicleTelemetry` has no time field for one to be
-read from.
+vehicle clock** — vehicle time is untrusted ([`interfaces.md` §2](interfaces.md#2-time-and-trust)),
+and `VehicleTelemetry` has no time field for one to be read from.
 
 A second threshold, `LostAfter`, sits at 5× that. **The multiplier is notional**: the construction
 is sourced — a multiple of the slowest configured period — but nothing measured says five rather
@@ -135,7 +135,9 @@ language, its contrast ratios and what the built console survived —
 **Rationale.** An implicit altitude reference is the classic two-vehicle integration failure, and
 rejection at the boundary makes the mistake loud instead of leaving it to be discovered by a
 vehicle flying at somebody else's datum. `Altitude` pairs the number with its reference in one
-type, so the requirement is met at every call site at once rather than by remembering to check.
+type, so the requirement is met at every call site at once rather than by remembering to check. The
+units and references this obliges a vehicle to supply are published in
+[`interfaces.md` §3](interfaces.md#3-units-and-references).
 
 **Evidence.** `tests/Mcs.Core.Tests/AltitudeTests.cs` —
 `FromMeters_UndeclaredReference_ThrowsArgumentOutOfRange` and the `FromFeet` twin;
@@ -159,7 +161,8 @@ evidence this table can offer yet.
 
 **Rationale.** A single trusted time base, for MCS-002 now and for conflict windows later. Ingest is
 two-phase — `BeginReceive` → decode → `Complete` — so the clock is read at arrival and the decode
-cost is *measured* rather than folded invisibly into the recorded age of the data.
+cost is *measured* rather than folded invisibly into the recorded age of the data. The rule as a
+vehicle integrator meets it is [`interfaces.md` §2](interfaces.md#2-time-and-trust).
 
 **Evidence.** `tests/Mcs.Core.Tests/TelemetryIngestTests.cs` —
 `Complete_StampsTheFrameWithArrival_NotWithTheTimeTheDecodeFinished`,
