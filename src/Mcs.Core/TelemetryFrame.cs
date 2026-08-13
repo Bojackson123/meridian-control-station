@@ -27,25 +27,37 @@ namespace Mcs.Core;
 /// statement after the read.
 /// </para>
 /// <para>
+/// <b>Two readings of the station clock, taken together at arrival.</b>
+/// <see cref="ReceivedAtUtc"/> is a point on the calendar, which the API serves and a human reads;
+/// <see cref="ReceivedTimestamp"/> is the monotonic partner, and it is what an <i>age</i> is
+/// measured from. Both come from one <see cref="TimeProvider.GetUtcNow"/> / <see
+/// cref="TimeProvider.GetTimestamp"/> pair inside <see cref="TelemetryIngest.BeginReceive"/>, so
+/// neither can be substituted for the other by an adapter.
+/// </para>
+/// <para>
 /// No <c>IsStale</c> or <c>Age</c> member, deliberately: both need a "now", and a value that reads a
-/// clock is untestable and unloggable. Staleness belongs to the console layer, which holds the
-/// <see cref="TimeProvider"/>.
+/// clock is untestable and unloggable. <see cref="TelemetryCurrency"/> is where a frame and a "now"
+/// meet -- in <c>Mcs.Core</c>, not in the console, because MCS-002 evaluates against the station
+/// clock and a browser's clock is no more trustworthy than a vehicle's.
 /// </para>
 /// </remarks>
 public sealed record TelemetryFrame
 {
-    private TelemetryFrame(VehicleTelemetry telemetry, DateTimeOffset receivedAtUtc)
+    private TelemetryFrame(
+        VehicleTelemetry telemetry, DateTimeOffset receivedAtUtc, long receivedTimestamp)
     {
         Telemetry = telemetry;
         ReceivedAtUtc = receivedAtUtc;
+        ReceivedTimestamp = receivedTimestamp;
     }
 
     /// <summary>
     /// Pairs a report with the instant it arrived. <c>internal</c> because it takes the timestamp as
     /// a parameter, which is exactly what the public surface must not do.
     /// </summary>
-    internal static TelemetryFrame Create(VehicleTelemetry telemetry, DateTimeOffset receivedAtUtc) =>
-        new(telemetry, receivedAtUtc);
+    internal static TelemetryFrame Create(
+        VehicleTelemetry telemetry, DateTimeOffset receivedAtUtc, long receivedTimestamp) =>
+        new(telemetry, receivedAtUtc, receivedTimestamp);
 
     /// <summary>Gets the vehicle's reported state. Every field of it is an untrusted claim.</summary>
     public VehicleTelemetry Telemetry { get; }
@@ -63,9 +75,32 @@ public sealed record TelemetryFrame
     /// </remarks>
     public DateTimeOffset ReceivedAtUtc { get; }
 
+    /// <summary>
+    /// Gets the monotonic reading taken alongside <see cref="ReceivedAtUtc"/>, from which
+    /// <see cref="TelemetryCurrency"/> measures this frame's age.
+    /// </summary>
+    /// <remarks>
+    /// <b>Internal, for the same reason <see cref="TelemetryReceipt"/> keeps its own private:</b> a
+    /// raw tick count means nothing outside the <see cref="TimeProvider"/> that issued it, so
+    /// publishing one invites a caller to subtract it from something unrelated. Everything that may
+    /// legitimately read it lives in this assembly.
+    /// <para>
+    /// The wall-clock reading cannot do this job. It steps: an NTP correction of a minute backwards
+    /// takes a minute off every vehicle's age at once, and a fleet that stopped reporting ten
+    /// minutes ago renders live again -- HAZ-01 arriving from the station's own clock. A monotonic
+    /// count does not step, which is why durations here are measured from it and never from a
+    /// subtraction of two calendar readings.
+    /// </para>
+    /// </remarks>
+    internal long ReceivedTimestamp { get; }
+
     //  Overridden solely to pin the culture: the synthesized PrintMembers uses the current culture,
     //  which would make a logged timestamp depend on the container's locale. "O" is round-trip --
     //  sortable as text, and what the JSON logs and any downstream parser expect.
+    //
+    //  ReceivedTimestamp is left out rather than forgotten: it is a tick count from a provider the
+    //  log's reader does not have, so printing it would add a number nobody can interpret beside
+    //  the one they can.
     private bool PrintMembers(StringBuilder builder)
     {
         CultureInfo invariant = CultureInfo.InvariantCulture;

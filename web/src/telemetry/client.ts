@@ -15,18 +15,28 @@ const SNAPSHOT_PATH = '/api/vehicles'
 /** Frames as they arrive. Mirrors `TelemetryEndpoints.StreamPath`. */
 const STREAM_PATH = '/api/telemetry/stream'
 
-/** The named SSE event carrying a frame. Mirrors `TelemetryEndpoints.TelemetryEventType`. */
+/** The named SSE event carrying the vehicle that just reported. Mirrors `TelemetryEndpoints.TelemetryEventType`. */
 const TELEMETRY_EVENT_TYPE = 'telemetry'
 
-/** The event the station sends to prove it is still there. Mirrors `TelemetryEndpoints.HeartbeatEventType`. */
-const HEARTBEAT_EVENT_TYPE = 'heartbeat'
+/**
+ * The event carrying the whole fleet with its ages re-evaluated. Mirrors
+ * `TelemetryEndpoints.FleetEventType`.
+ *
+ * This is how a vehicle that has stopped reporting is reported. Frames only arrive from vehicles
+ * that are talking, so silence can never be delivered by the silent party -- the station says it on
+ * a schedule instead. It also replaces the old empty `heartbeat`, and keeps that event's other job
+ * of proving the connection is alive.
+ */
+const FLEET_EVENT_TYPE = 'fleet'
 
 /**
- * How long the stream may say nothing at all -- no frame, no heartbeat -- before it is treated as
+ * How long the stream may say nothing at all -- no frame, no fleet tick -- before it is treated as
  * dead and reopened.
  *
- * Comfortably more than two of the station's 15-second heartbeat periods, so a single late one under
- * load is not mistaken for an outage.
+ * Now many multiples of the station's one-second tick rather than two of the old fifteen-second
+ * heartbeat, so this is a very patient number for what it now watches. Left where it is
+ * deliberately: lowering it changes what the console does when the *station* goes away, as opposed
+ * to a vehicle, and those need to be different pictures rather than the same one arriving sooner.
  */
 const SILENCE_TIMEOUT_MS = 40_000
 
@@ -36,6 +46,40 @@ const SILENCE_TIMEOUT_MS = 40_000
  * than two.
  */
 const REOPEN_DELAY_MS = 3_000
+
+/** Splits a station timestamp into whole milliseconds and the 100 ns ticks below them. */
+const arrivalOf = (receivedAtUtc: string): [number, number] => {
+  //  At most four digits past the third, which is exactly the resolution of the tick the station
+  //  stamps with; padded so ".12" and ".1200" are the same fraction rather than 12 against 1200.
+  const belowMilliseconds = /\.\d{3}(\d{1,4})/.exec(receivedAtUtc)
+
+  return [
+    Date.parse(receivedAtUtc),
+    belowMilliseconds ? Number(belowMilliseconds[1].padEnd(4, '0')) : 0,
+  ]
+}
+
+/**
+ * Orders two arrival times, negative when `left` arrived first, at the precision the wire carries.
+ *
+ * `Date.parse` alone is the obvious way to do this and stops at whole milliseconds, discarding the
+ * rest of a `DateTimeOffset` -- which is serialised to 100 ns. Two frames of one vehicle that
+ * arrived a fraction of a millisecond apart then compare *equal*, and equal means "the station has
+ * re-stated the frame I already hold" to the rule below, which settles it on age and throws the
+ * newer position away. That is a frame the station received in full, dropped by the console, and the
+ * conditions for it are not exotic: frames arriving in a burst is what produces sub-millisecond
+ * gaps, and a burst is what draining a slow connection's backlog looks like.
+ *
+ * The digits below the millisecond are carried as a second number rather than added into the first.
+ * A wall-clock reading is around 1.7e12 milliseconds, where a double's own step is already coarser
+ * than the fraction being added, so the addition would round out the distinction it was made for.
+ */
+const compareArrival = (left: string, right: string): number => {
+  const [leftMilliseconds, leftFraction] = arrivalOf(left)
+  const [rightMilliseconds, rightFraction] = arrivalOf(right)
+
+  return leftMilliseconds - rightMilliseconds || leftFraction - rightFraction
+}
 
 /**
  * Opens the station connection and reports the fleet whenever it changes.
@@ -52,10 +96,11 @@ const REOPEN_DELAY_MS = 3_000
  * browser handles for you, and assuming it covers the other two is what leaves an operator watching
  * a console that stopped updating some minutes ago.
  *
- * Note what this does not do: while the station is unreachable, the last frames stay on the map at
- * their last positions. Showing the operator that the picture has stopped being current is MCS-002's
- * job and needs a designed visual language rather than an improvised one, so for now the disconnect
- * is visible in the browser console and nowhere else.
+ * Note what this does not do: nothing here draws. Every frame now arrives carrying the station's
+ * judgement of how current it is, and while the station is unreachable the last frames stay on the
+ * map at their last positions with ages that have stopped advancing. Turning both of those into
+ * something an operator can see is the state language's job, and it is not built yet -- so for now
+ * the disconnect is visible in the browser console and nowhere else.
  *
  * @param onFleet Called with the whole fleet after every accepted frame.
  * @returns A disposer. Call it once; the connection is not reusable afterwards.
@@ -77,12 +122,45 @@ export function connectTelemetry(onFleet: (fleet: Fleet) => void): () => void {
   //  Later wins, by the station's clock rather than arrival order. This is what makes the race
   //  between the snapshot and the stream a non-problem instead of something to sequence carefully:
   //  a snapshot that lands after a newer streamed frame cannot walk the vehicle backwards.
+  //
+  //  "Later" has two parts, because the same frame now arrives repeatedly with its age advancing.
+  //  A frame received earlier than the held one is rejected outright; the *same* frame is accepted
+  //  only when it comes with a greater age, which is a fresher evaluation of the same data. Testing
+  //  the receipt time alone would either throw away every fleet tick for a quiet vehicle -- the
+  //  ones that matter -- or let a snapshot in flight reset an age that had already climbed past it.
   const admit = (frame: VehicleFrame): boolean => {
     const held = fleet.get(frame.vehicleId)
-    if (held && Date.parse(held.receivedAtUtc) >= Date.parse(frame.receivedAtUtc)) return false
+
+    if (held) {
+      const order = compareArrival(held.receivedAtUtc, frame.receivedAtUtc)
+
+      if (order > 0) return false
+      if (order === 0 && held.ageMilliseconds >= frame.ageMilliseconds) return false
+    }
 
     fleet.set(frame.vehicleId, frame)
     return true
+  }
+
+  //  The station's whole answer, so it is applied as one: every vehicle in it takes the state and
+  //  age given, and every vehicle *not* in it has been dropped by the station and leaves the map.
+  //  That last part is the only way a vehicle is ever removed here -- the store's contract says a
+  //  subscription carries frames and a removal is not one, so without this a forgotten vehicle
+  //  would sit on the map at its last position until the page was reloaded.
+  const replaceFleet = (frames: VehicleFrame[]) => {
+    const present = new Set(frames.map((frame) => frame.vehicleId))
+
+    let changed = false
+    for (const frame of frames) changed = admit(frame) || changed
+
+    for (const id of [...fleet.keys()]) {
+      if (present.has(id)) continue
+
+      fleet.delete(id)
+      changed = true
+    }
+
+    if (changed) publish()
   }
 
   //  Asked for after the subscription is open, never before. A frame published between the two calls
@@ -154,20 +232,27 @@ export function connectTelemetry(onFleet: (fleet: Fleet) => void): () => void {
 
     heardFromStation()
 
+    //  Both events carry an array of vehicles -- one element for a report, the whole fleet for a
+    //  tick -- so the payload is parsed the same way and only what is done with it differs.
+    //  The DOM's EventSource typings only know about `message`, so a named event arrives as the
+    //  base Event type and the payload has to be reclaimed here.
+    const vehiclesIn = (event: Event) =>
+      JSON.parse((event as MessageEvent<string>).data) as VehicleFrame[]
+
     opened.addEventListener(TELEMETRY_EVENT_TYPE, (event) => {
       heardFromStation()
 
-      //  The DOM's EventSource typings only know about `message`, so a named event arrives as the
-      //  base Event type and the payload has to be reclaimed here.
-      const frame = JSON.parse((event as MessageEvent<string>).data) as VehicleFrame
+      let changed = false
+      for (const frame of vehiclesIn(event)) changed = admit(frame) || changed
 
-      if (admit(frame)) publish()
+      if (changed) publish()
     })
 
-    //  The heartbeat carries no data and is listened for only so that it counts as news. A quiet
-    //  fleet is indistinguishable from a dead station without it, which is exactly why the station
-    //  sends one.
-    opened.addEventListener(HEARTBEAT_EVENT_TYPE, heardFromStation)
+    opened.addEventListener(FLEET_EVENT_TYPE, (event) => {
+      heardFromStation()
+
+      replaceFleet(vehiclesIn(event))
+    })
 
     opened.onerror = () => {
       //  Still CONNECTING: the browser dropped an established stream and is already retrying it on

@@ -55,7 +55,8 @@ public sealed class MavlinkAdapterOptions : IValidatableObject
     /// <remarks>
     /// Zero is permitted and means "any free port", which is not useful in a deployment and is what
     /// lets a test -- or two stations in one process -- bind without arranging port numbers between
-    /// them. <see cref="MavlinkUdpAdapter.LocalEndPoint"/> reports what was actually bound.
+    /// them. <see cref="MavlinkUdpAdapter.Listening"/> completes with what was actually bound; it is
+    /// a task rather than a property precisely because a port of 0 has no answer until the bind.
     /// </remarks>
     [Range(0, 65535)]
     public int Port { get; set; } = 14550;

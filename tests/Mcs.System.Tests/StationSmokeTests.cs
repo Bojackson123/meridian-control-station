@@ -44,6 +44,15 @@ public class StationSmokeTests
     /// <summary>The datums MCS-004 allows. A frame reporting anything else is not readable.</summary>
     private static readonly string[] AltitudeReferences = ["Msl", "Agl", "Hae"];
 
+    /// <summary>The three states MCS-002 defines. Spelled out here rather than imported, as ever.</summary>
+    private static readonly string[] VehicleStates = ["Live", "Stale", "Lost"];
+
+    /// <summary>
+    /// MCS-002's stale threshold, restated. A vehicle being flown by the simulator in the same
+    /// Compose network and reporting at 4 Hz is nowhere near it.
+    /// </summary>
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(3);
+
     private readonly SmokeStackFixture _stack;
 
     public StationSmokeTests(SmokeStackFixture stack) => _stack = stack;
@@ -116,6 +125,66 @@ public class StationSmokeTests
         //  300 above the ground are different places, and converting between them needs terrain
         //  the station does not hold (MCS-004).
         Assert.Contains(vehicle.Altitude.Reference, AltitudeReferences);
+    }
+
+    /// <summary>
+    /// G9 -- the station, not the browser, says how current each vehicle is.
+    /// </summary>
+    /// <remarks>
+    /// The age arrives already computed, which is the point of asserting it here: a console that
+    /// worked it out from <c>receivedAtUtc</c> and its own clock would render a live aircraft as
+    /// lost, or a lost one as live, on any machine whose clock is off -- and this suite's client has
+    /// no more claim to a correct clock than a browser does.
+    /// </remarks>
+    [SmokeFact]
+    public async Task Snapshot_SaysHowCurrentEachVehicleIs()
+    {
+        using CancellationTokenSource deadline = new(RequestBudget);
+
+        VehicleFrame[] fleet = await ReadJsonAsync<VehicleFrame[]>(
+            _stack.Api, Routes.Snapshot, deadline.Token);
+
+        Assert.True(fleet.Length > 0, "the snapshot is empty; nothing is flying.");
+
+        VehicleFrame vehicle = fleet[0];
+
+        Assert.Contains(vehicle.State, VehicleStates);
+
+        //  An aircraft being flown by the simulator right now is Live, and its age is a fraction of
+        //  its 4 Hz reporting interval. A stale one here means the simulator is not transmitting,
+        //  the adapter is not receiving, or the two are on different ports -- all of which look
+        //  identical on a map that does not say how old its markers are.
+        Assert.Equal("Live", vehicle.State);
+        Assert.InRange(vehicle.AgeMilliseconds, 0, (long)StaleAfter.TotalMilliseconds);
+    }
+
+    /// <summary>
+    /// G9 -- the fleet is re-stated on a schedule, so an age advances with nothing arriving.
+    /// </summary>
+    [SmokeFact]
+    public async Task Stream_TicksTheWholeFleet()
+    {
+        using CancellationTokenSource deadline = new(StreamBudget);
+        using HttpResponseMessage response = await OpenStreamAsync(_stack.Api, deadline.Token);
+
+        AssertIsEventStream(_stack.Api, response);
+
+        await using Stream body = await response.Content.ReadAsStreamAsync(deadline.Token);
+
+        await foreach (VehicleFrame[] tick in
+            EventsAsync(body, Routes.FleetEventType, deadline.Token))
+        {
+            //  The tick carries every vehicle the station holds, which is what makes it the answer
+            //  for the ones that have stopped reporting: they appear here and nowhere else.
+            Assert.True(tick.Length > 0, "the fleet tick was empty; nothing is flying.");
+            Assert.All(tick, vehicle => Assert.Contains(vehicle.State, VehicleStates));
+
+            return;
+        }
+
+        Assert.Fail(
+            $"no {Routes.FleetEventType} event arrived within {StreamBudget.TotalSeconds:0} s; a "
+                + "vehicle that goes quiet would never be reported stale.");
     }
 
     /// <summary>G1 -- the stream is live, straight from the API.</summary>
@@ -381,22 +450,44 @@ public class StationSmokeTests
     }
 
     /// <summary>
-    /// The telemetry frames on a stream, with heartbeats dropped and the deadline turned into an
+    /// The telemetry frames on a stream, with fleet ticks dropped and the deadline turned into an
     /// ordinary end of sequence.
     /// </summary>
     /// <remarks>
     /// Swallowing the cancellation is what lets the callers above fail as assertions naming what
     /// they were short of, rather than as a bare <see cref="OperationCanceledException"/> that says
     /// only that some clock somewhere ran out.
+    /// <para>
+    /// Both event types carry an array -- one vehicle for a report, the whole fleet for a tick -- so
+    /// the ticks are skipped by name rather than by shape. Skipping them is right here: what these
+    /// callers are asking about is an aircraft reporting, and a tick is the station talking about
+    /// one that has not.
+    /// </para>
     /// </remarks>
     private static async IAsyncEnumerable<VehicleFrame> TelemetryAsync(
         Stream body, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        SseParser<VehicleFrame?> parser = SseParser.Create<VehicleFrame?>(
-            body,
-            static (_, data) => JsonSerializer.Deserialize<VehicleFrame>(data, WireFormat.Options));
+        await foreach (VehicleFrame[] vehicles in
+            EventsAsync(body, Routes.TelemetryEventType, cancellationToken))
+        {
+            foreach (VehicleFrame frame in vehicles)
+            {
+                yield return frame;
+            }
+        }
+    }
 
-        IAsyncEnumerator<SseItem<VehicleFrame?>> events =
+    /// <summary>The payloads of every <paramref name="eventType"/> event on a stream.</summary>
+    private static async IAsyncEnumerable<VehicleFrame[]> EventsAsync(
+        Stream body,
+        string eventType,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        SseParser<VehicleFrame[]?> parser = SseParser.Create<VehicleFrame[]?>(
+            body,
+            static (_, data) => JsonSerializer.Deserialize<VehicleFrame[]>(data, WireFormat.Options));
+
+        IAsyncEnumerator<SseItem<VehicleFrame[]?>> events =
             parser.EnumerateAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
 
         try
@@ -415,17 +506,13 @@ public class StationSmokeTests
                     yield break;
                 }
 
-                //  Heartbeats are named events carrying a null payload, not comment lines. They
-                //  only fire after fifteen seconds of silence, so at 4 Hz this skip never triggers
-                //  -- it is here so that a link which does go quiet fails the count assertion with
-                //  the frames it got, rather than an unhandled null.
-                if (events.Current.EventType != Routes.TelemetryEventType
-                    || events.Current.Data is not VehicleFrame frame)
+                if (events.Current.EventType != eventType
+                    || events.Current.Data is not VehicleFrame[] vehicles)
                 {
                     continue;
                 }
 
-                yield return frame;
+                yield return vehicles;
             }
         }
         finally
