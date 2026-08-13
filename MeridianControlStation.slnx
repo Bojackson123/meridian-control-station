@@ -10,6 +10,7 @@
     <Project Path="tests/Mcs.Api.Tests/Mcs.Api.Tests.csproj" />
     <Project Path="tests/Mcs.Core.Tests/Mcs.Core.Tests.csproj" />
     <Project Path="tests/Mcs.Integration.Tests/Mcs.Integration.Tests.csproj" />
+    <Project Path="tests/Mcs.Simulator.Tests/Mcs.Simulator.Tests.csproj" />
     <Project Path="tests/Mcs.System.Tests/Mcs.System.Tests.csproj" />
   </Folder>
 </Solution>

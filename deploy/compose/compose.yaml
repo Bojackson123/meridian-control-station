@@ -1,4 +1,4 @@
-# The whole station: a database, the API, and the console in front of it.
+# The whole station: a database, the API, the console in front of it, and an aircraft flying at it.
 #
 #     ./tools/bootstrap-env.sh                                              (once, after cloning)
 #     docker compose --env-file .env -f deploy/compose/compose.yaml up --build
@@ -11,8 +11,9 @@
 # environments without feeding the ${...} substitutions the ports and the connection string
 # are built from.
 #
-# Nothing here reaches the network for anything but the three base images. No accounts, no
-# API keys, no tile CDN -- the console's offline claim is only true if this file keeps it.
+# Nothing here reaches the network for anything but the base images. No accounts, no API keys,
+# no tile CDN -- the console's offline claim is only true if this file keeps it. The aircraft is
+# a container too, for the same reason: a hosted simulator would be a service to sign up for.
 
 #  Otherwise the project name comes from this file's parent directory, and every container,
 #  network and volume is prefixed "compose-", which says nothing about whose they are.
@@ -133,10 +134,37 @@ services:
       retries: 5
       start_period: 10s
 
+  sim:
+    build:
+      #  The repo root again, because Mcs.Simulator references Mcs.Adapters for the MAVLink
+      #  serialiser -- the station's own, so the frames on this link are framed by the code
+      #  that un-frames them.
+      context: ../..
+      dockerfile: src/Mcs.Simulator/Dockerfile
+
+    environment:
+      #  The API service's name on the shared network. There is no networks: block in this
+      #  file, so everything is on the default one and Docker's DNS answers for "api".
+      Simulator__TargetHost: api
+      Simulator__TargetPort: "14550"
+
+    #  Plain dependency, deliberately not service_healthy. UDP does not care whether anyone is
+    #  listening, and an API still applying migrations simply misses the frames sent during
+    #  that window -- which is correct behaviour for a vehicle, and the same thing a real
+    #  aircraft does when its ground station is rebooting. Gating on health here would only
+    #  make the simulator's start time a function of the database's.
+    depends_on:
+      - api
+
+    #  No ports and no healthcheck. It talks out, so only the API binds; and there is nothing
+    #  to probe -- `up --wait` is satisfied by a running container, and a simulator that could
+    #  not start has exited non-zero rather than sitting there unhealthy.
+
 #  No restart: policy anywhere above. A service that cannot start should stop and say so --
 #  the API exiting non-zero because it has no database is information, and restart: always
-#  turns it into a container that looks busy. No simulator service either: it is a stub, and
-#  an empty service reserved for later is not a service.
+#  turns it into a container that looks busy. That applies to the simulator too: an aircraft
+#  whose route will not validate should not be restarted into the same failure every ten
+#  seconds until someone reads far enough back in the log to find the first one.
 
 volumes:
   pgdata:

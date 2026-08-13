@@ -71,10 +71,10 @@ jobs:
         #  publishes, so this is the build whose warnings would otherwise reach a container.
         run: dotnet build -c Release --no-restore
 
-      #  Three steps rather than one solution-wide `dotnet test`, for two reasons. The job graph
-      #  names the suite that broke without anyone opening a log; and a solution-wide run would
-      #  sweep in Mcs.System.Tests, which has no stack to talk to here and would skip itself --
-      #  eight quiet skips inside an otherwise green run is the precise failure the smoke job
+      #  A step per suite rather than one solution-wide `dotnet test`, for two reasons. The job
+      #  graph names the suite that broke without anyone opening a log; and a solution-wide run
+      #  would sweep in Mcs.System.Tests, which has no stack to talk to here and would skip itself
+      #  -- eight quiet skips inside an otherwise green run is the precise failure the smoke job
       #  below is built to prevent, and it would be sitting in this job instead.
       - name: Test — domain
         run: dotnet test tests/Mcs.Core.Tests -c Release --no-build
@@ -88,6 +88,12 @@ jobs:
         #  the other suites do not. Regenerating them is a deliberate act with a pinned virtualenv
         #  behind it — see tools/mavlink-vectors/.
         run: dotnet test tests/Mcs.Adapters.Tests -c Release --no-build
+
+      - name: Test — simulator
+        #  The aircraft: its turn radius against the closed form, its route, and its bytes read
+        #  back by the station's own parser and decoder. No Docker and no socket -- the flight
+        #  model is pure and the emitter produces byte arrays, so this is the fastest suite here.
+        run: dotnet test tests/Mcs.Simulator.Tests -c Release --no-build
 
       - name: Test — integration
         #  Testcontainers starts a real Postgres. No setup step: ubuntu-latest ships Docker

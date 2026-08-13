@@ -13,8 +13,9 @@ does not honour.
 
 ```bash
 dotnet build                              # solution-wide; warnings are errors
-dotnet test                               # all five test projects; needs Docker (see below)
+dotnet test                               # all six test projects; needs Docker (see below)
 dotnet run --project src/Mcs.Api          # http://localhost:5271
+dotnet run --project src/Mcs.Simulator    # flies an aircraft at 127.0.0.1:14550
 
 # a single project / class / method
 dotnet test tests/Mcs.Core.Tests
@@ -22,11 +23,14 @@ dotnet test tests/Mcs.Core.Tests --filter "FullyQualifiedName~InMemoryTelemetryS
 dotnet test tests/Mcs.Core.Tests --filter "FullyQualifiedName~InMemoryTelemetryStoreTests.Write_ThrowsWhenAFurtherVehicleWouldExceedTheCap"
 ```
 
-`tests/Mcs.Core.Tests`, `tests/Mcs.Api.Tests` and `tests/Mcs.Adapters.Tests` need no Docker and no
-Python — in particular the MAVLink suite's byte vectors are committed rather than generated. The
-adapter tests in `Mcs.Adapters.Tests` do bind a loopback UDP socket on an ephemeral port, because
-the two things they exist to prove — that a datagram boundary is not a frame boundary, and that the
-receive loop survives what a link does to it — are properties of the socket path.
+`tests/Mcs.Core.Tests`, `tests/Mcs.Api.Tests`, `tests/Mcs.Adapters.Tests` and
+`tests/Mcs.Simulator.Tests` need no Docker and no Python — in particular the MAVLink suite's byte
+vectors are committed rather than generated. The adapter tests in `Mcs.Adapters.Tests` do bind a
+loopback UDP socket on an ephemeral port, because the two things they exist to prove — that a
+datagram boundary is not a frame boundary, and that the receive loop survives what a link does to
+it — are properties of the socket path. `Mcs.Simulator.Tests` binds nothing: the flight model is
+pure and the emitter returns byte arrays, so the socket is the one part of that process its suite
+does not touch.
 
 `tests/Mcs.Integration.Tests` starts a real Postgres via Testcontainers, so **Docker must be
 running** or that project fails.
@@ -64,14 +68,14 @@ nothing else. `npm run build` runs `tsc -b` first, so type errors fail there rat
 — never copy `.env.example` into place, its password is a deliberate placeholder.
 
 `.github/workflows/ci.yml` is the authority on what has to pass: a `build-and-test` job (Release
-build, then Core, Api, Adapters and Integration tests, then the web build and lint) and a `smoke` job that
+build, then Core, Api, Adapters, Simulator and Integration tests, then the web build and lint) and a `smoke` job that
 runs `tools/bootstrap-env.sh`, brings the stack up and runs `Mcs.System.Tests` with
 `MCS_SMOKE_REQUIRED=1`. Every compose invocation there carries `--env-file .env`, without which
 the `:?` guards fail the command. The log dump on failure is ordered before teardown on purpose —
 `down` takes the containers' logs with it.
 
-Pinned versions that must agree across the repo: .NET SDK 10.0.302 (`global.json`, the SDK tag in
-`src/Mcs.Api/Dockerfile`, and CI via `global-json-file`), Node 24.18.1 (`.nvmrc`, `web/Dockerfile`,
+Pinned versions that must agree across the repo: .NET SDK 10.0.302 (`global.json`, the SDK tags in
+`src/Mcs.Api/Dockerfile` and `src/Mcs.Simulator/Dockerfile`, and CI via `global-json-file`), Node 24.18.1 (`.nvmrc`, `web/Dockerfile`,
 and CI via `node-version-file`), `postgres:18-alpine` (`PostgresFixture.PostgresImage` and
 Compose). CI reads the version files rather than restating any of them.
 
@@ -81,12 +85,12 @@ Compose). CI reads the version files rather than restating any of them.
 src/Mcs.Core        domain: telemetry model, ingest boundary, bounded store, IVehicleAdapter
 src/Mcs.Api         ASP.NET Core host; fake feed, persistence, observability live here
 src/Mcs.Adapters    vehicle adapters; Mavlink/ holds the v2 framing codec and the UDP link
-src/Mcs.Simulator   stub until the air simulator lands
+src/Mcs.Simulator   the air simulator: kinematics, waypoint follower, MAVLink out over UDP
 web/                React + TypeScript + Vite + MapLibre console
 web/public/basemap  the offline MapLibre style; its rationale lives in the file's `metadata`
 deploy/migrations/  numbered .sql, embedded into Mcs.Api and applied on startup
 tools/mavlink-vectors/  the pymavlink generator for the codec's byte vectors
-tests/              unit (Core, Api, Adapters) · integration (real Postgres) · system (compose smoke)
+tests/              unit (Core, Api, Adapters, Simulator) · integration (real Postgres) · system (compose smoke)
 ```
 
 **`Mcs.Core` has zero package references and must keep them.** No logger, no web, no
@@ -194,6 +198,50 @@ a ground station sees dozens of message types it has no decoder for and a log li
 whoever is watching to ignore the stream. Signing is not implemented and will not be — signed frames
 are rejected and counted, and the README's limitations section says so.
 
+### The air simulator
+
+`Mcs.Simulator` is a separate process in a separate container that transmits real MAVLink v2 to the
+API's adapter over UDP. In-process would have been simpler and would exercise none of the socket,
+the framing or the datagram boundaries — that is, none of what the adapter and codec are for.
+
+**The turn radius is derived, never configured.** `AircraftEnvelope` takes a cruise speed and a bank
+limit and computes `R = v²/(g·tan φ)` and the turn rate `v/R` from them. A configured turn rate would
+let the aircraft's real turn behaviour drift away from the number a deconfliction bound is later
+computed with, and the two would still each look right. `AircraftKinematicsTests` measures the radius
+**geometrically from the flown path** at two speeds — reading `MaxTurnRateDegreesPerSecond` back would
+restate the formula and say nothing about the integrator.
+
+`AircraftKinematics` is pure and stateless, so the flight tests integrate a path with no clock, no
+socket and no host. `WaypointFollower` uses **capture-radius guidance rather than cross-track**:
+cross-track needs a gain, and a gain would make the turn a property of a tuning constant that the
+bound would then have to describe too. **The capture radius may not be below the turn radius** — under
+it the aircraft orbits a waypoint it can never reach, which renders as a tidy loiter — and that is
+rejected at startup, not clamped.
+
+**Framing is shared with the station; payloads are not.** The simulator calls `MavlinkFrameWriter`
+(that is why the codec encodes at all, and it is a second consumer that is not a test), but the four
+payload writers under `Mcs.Simulator/Mavlink` are written independently of the station's readers.
+That is what makes `StationDecodesTheSimulatorTests` evidence: a field at the wrong offset in one
+cannot cancel against the same mistake in the other. It is **not** evidence about framing — both
+sides share the writer and parser, so framing errors cancel exactly, and the committed pymavlink
+vectors remain the only proof there. An `InternalsVisibleTo` from `Mcs.Adapters` to the simulator
+would destroy this and is the one shortcut not to take.
+
+**Four messages at four genuinely different, non-harmonic rates** (1 / 0.5 / 3 / 4 Hz). The station's
+`MavlinkTelemetryAssembler` exists because rates differ; one bundle at one rate leaves it untested by
+construction, and 3 Hz against 4 Hz is what makes some positions arrive with a fresh VFR_HUD and some
+carry the previous one. The physics step (20 Hz) is independent of all four, so changing the telemetry
+rate cannot change how the aircraft flies, and elapsed time is a tick count times the step rather than
+a running sum.
+
+Fault flags are **stubbed**: `SysStatusPayload` sends one healthy sensor mask for present, enabled and
+health, and that constant is the marked injection point. A half-built fault system is worse than none.
+
+The container publishes no port and has no healthcheck — it talks out, only the API binds, and
+`up --wait` is satisfied by a running container. A **resolve** failure is fatal and names the setting
+(a simulator transmitting into nowhere looks exactly like a healthy one); a **send** failure is
+counted and survived, because a real aircraft keeps flying when its ground station goes down.
+
 ### Startup and persistence
 
 `DatabaseStartup` is an `IHostedLifecycleService` using `StartingAsync` specifically so it
@@ -232,9 +280,11 @@ paints and every data layer stays silently empty.
 
 ### Logging
 
-Serilog, two-stage init in `Program.cs`, compact JSON to stdout, configured from the
-`Serilog` section so `Serilog__MinimumLevel__Default` works on a running container.
-`Enrich.FromLogContext` stays in code because `CorrelationIdMiddleware` depends on it.
+Serilog, two-stage init in `Program.cs`, compact JSON to stdout. Levels come from the
+`Serilog` section so `Serilog__MinimumLevel__Default` works on a running container; **the console
+sink stays in code**, in both hosts, because a container missing its `appsettings.json` otherwise
+built a stage-two logger with no sinks and died printing nothing at all. `Enrich.FromLogContext`
+stays in code because `CorrelationIdMiddleware` depends on it.
 Health-probe and SSE request lines are logged at Debug on purpose.
 
 ## Conventions
