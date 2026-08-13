@@ -23,6 +23,11 @@ the station migrates on startup, structured logs, and the whole thing under one
 The table below says exactly what runs at this tag, and nothing in this file describes
 anything that doesn't. It does not connect to real aircraft.
 
+The same discipline in more detail: [`docs/requirements.md`](docs/requirements.md) states what the
+station is required to do and how each requirement is verified — including the two that are not,
+and the one that is only half-verified — and [`docs/what-can-go-wrong.md`](docs/what-can-go-wrong.md)
+is where those requirements came from.
+
 ---
 
 ## Quickstart
@@ -400,11 +405,13 @@ single-use receipt is its only caller: outside the core there is no expression t
 frame.
 
 **Everything the console shows must be able to be shown as stale.** The hazard this system
-is designed against is a console that shows an operator a picture they believe is current
-when it isn't. That's why the store rejects a thirteenth vehicle loudly instead of dropping
-it, why a full subscriber queue drops its *oldest* frames rather than its newest, and why
-values are rejected rather than clamped — a clamped 200% battery renders as a believable
-100%, and the operator never learns the adapter is broken.
+is designed against — HAZ-01, in [`docs/what-can-go-wrong.md`](docs/what-can-go-wrong.md) — is
+a console that shows an operator a picture they believe is current when it isn't. That's why
+the store rejects a thirteenth vehicle loudly instead of dropping it, why a full subscriber
+queue drops its *oldest* frames rather than its newest, and why values are rejected rather
+than clamped — a clamped 200% battery renders as a believable 100%, and the operator never
+learns the adapter is broken. That file is the whole list: eight things that could go wrong,
+what stops each one, and the two that nothing stops yet.
 
 **A migration is immutable once it has shipped, and the database enforces it.** Schema
 changes are numbered `.sql` files compiled into the API and applied on startup, inside a
