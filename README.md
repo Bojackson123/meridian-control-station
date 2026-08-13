@@ -88,7 +88,8 @@ truth about what the console is showing is a debugging cost with no upside.
 | Offline basemap — dark MapLibre style, zoom-adaptive graticule, no third-party requests | working |
 | Map console — the fleet on the basemap, each marker oriented by heading | working; a vehicle that reported no heading is drawn without a nose rather than pointed north |
 | Persistence of domain data | not yet — the schema mechanism is proven, the tables that use it arrive with the features that define them |
-| Console state language — live / stale / lost, alerts | not yet — a link that has gone quiet shows only in the browser console |
+| Console state language — live / stale (+age) / lost, on the map and in the fleet panel | landed after `v0.1`, tested; designed once in `docs/notes/console-design.md` and rendered from one derivation, so a marker and its row cannot disagree |
+| Alerts and acknowledgement | not yet — the state language and the bar they belong in are designed and built; nothing evaluates an alert |
 | Docker Compose — database, API, console and simulator, one command, offline | working |
 | MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | landed after `v0.1`, tested |
 | MAVLink message decode — the four messages the console displays, assembled into telemetry | landed after `v0.1`, tested against the same vectors |
@@ -173,10 +174,11 @@ the test of that, and it will be run against a real diff.
 - Fault flags are stubbed at both ends. The simulator sends one healthy sensor mask, always;
   `SYS_STATUS`'s sensor-health bitmasks are decoded and read by nothing; and the link status the
   API reports is always healthy, because a decoded frame is one that arrived, so this path holds
-  no evidence of a degraded link. Whether a vehicle has gone quiet is a question
-  about the station's clock, and nothing answers it yet — see the last item below.
-- Nothing on screen yet distinguishes a vehicle reporting now from one that stopped ten
-  minutes ago.
+  no evidence of a degraded link. Whether a vehicle has gone quiet is a separate question, asked
+  against the station's clock, and the console answers that one.
+- Nothing evaluates an alert. The bar across the top of the console is the place alerts belong and
+  it currently carries one thing — whether the station is still talking — and the fleet panel
+  reserves the space the abort control will occupy without drawing a control that does nothing.
 
 ---
 
@@ -184,8 +186,8 @@ the test of that, and it will be run against a real diff.
 
 In order, without dates:
 
-- **A console state language.** Live, stale and lost as things an operator can see, so the
-  last limitation above stops being one.
+- **Alerts that cannot be missed.** Geofence and battery conditions surfaced in the bar the
+  console already reserves for them, acknowledged one at a time and never timed out.
 - **Commands and tasking.** A command lifecycle with a durable audit trail, behind an
   authenticated operator.
 - **A second vehicle type.** A ground vehicle, added by writing an adapter and not by
@@ -299,11 +301,12 @@ cd web && npm install && npm run dev
 ```
 
 A dark map centred on the aircraft's route, a scale bar, a graticule that changes spacing with
-the zoom — and the fleet on top of it, one marker per vehicle, rotated to the heading in its
-latest frame. **Start the API first:** the dev server proxies `/api` to it on port 5271, and
-with nothing behind that proxy the basemap draws but stays empty. The aircraft is a third
-process — `dotnet run --project src/Mcs.Simulator` — and without it the station is listening to
-an empty sky, which looks exactly the same.
+the zoom — the fleet on top of it, one marker per vehicle rotated to the heading in its latest
+frame, and beside it a panel listing every vehicle with all six of the fields the requirements
+ask for. **Start the API first:** the dev server proxies `/api` to it on port 5271, and with
+nothing behind that proxy the basemap draws but stays empty. The aircraft is a third process —
+`cd src/Mcs.Simulator && dotnet run` — and without it the station is listening to an empty sky,
+which looks exactly the same.
 
 The marker steps rather than gliding, and that is the interesting part. Smooth motion means
 interpolating between frames, which puts the vehicle at a position it never reported — a
@@ -311,12 +314,29 @@ nicer-looking console that is lying about where something is. At four position r
 you are watching the station show you exactly what it was told, and nothing else; on a slower
 link the steps get coarser, and that is the link being visible rather than a defect.
 
-What the console does *not* do yet: nothing on screen distinguishes a vehicle reporting now
-from one that stopped ten minutes ago. Stop the API and the markers stay exactly where they
-were, with only the browser console saying so. The client notices — it treats silence on the
-stream as a fault and reopens the connection, so the map recovers on its own when the API
-comes back — but saying it on screen needs the visual language designed first, and that is
-the next piece of console work.
+**Stop the aircraft and watch what happens.** After three seconds its marker goes hollow and
+amber, freezes on its last heading, and grows a chip counting the age of the data — on the map and
+in its row at the same moment, because both come from one derivation rather than two. Twelve
+seconds later it becomes a dashed ring with **no heading at all**, its speed and heading in the
+panel become dashes, and it sits at the dimmest level on the screen. The station does not know
+which way that aircraft is pointing; it knows where it was pointing some minutes ago, and a
+confident nose on a dead track is the display asserting what it cannot support.
+
+Then stop the API. Every vehicle goes to that same ring within about three seconds, every chip
+reads `?`, and the bar across the top says `STATION UNREACHABLE`. A quiet vehicle in a healthy
+fleet is stale because the station said so; a quiet station leaves every age unknown and growing,
+and the one thing the console may not do is keep showing a live fleet on the strength of a
+snapshot that has stopped arriving. It reconnects on its own, and the fleet comes back when the
+station does.
+
+Twelve of them at once is `tools/fleet-at-twelve.ps1` (or `.sh`), which is how the layout's claim
+to fit twelve rows without a scrollbar gets checked rather than asserted.
+
+Everything above is decided in `docs/notes/console-design.md` and its working drawing, once,
+before any of it was built. Two rules from it are worth knowing while looking at the screen: **no
+state is carried by colour alone** — put the browser in greyscale and solid dart, hollow dart and
+dashed ring still separate — and **the age is on screen, never in a tooltip**, because an operator
+scanning twelve vehicles hovers over none of them.
 
 The basemap is bundled, not fetched: the MapLibre style and everything it references are
 served from `web/public`, there is no tile CDN and no API key, and the page carries a

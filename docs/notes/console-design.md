@@ -157,6 +157,25 @@ chip slot, since there is only one: **the age wins it.** A stale RTL vehicle sho
 keeps its ring, and the ring is enough on its own — it is the only thing on the map that draws
 a circle around a dart.
 
+### When the station itself goes quiet
+
+Four states, and all four are the *station's* answer. There is a fifth case they cannot cover:
+the console stops hearing from the station at all. Every vehicle's age is then unknown and
+growing, and going on drawing the fleet as live because the last snapshot said so is precisely
+the failure this language exists to prevent — with the added cruelty that it would look
+completely normal.
+
+**The fleet takes lost's rendering, and the chip says `?`.** Not a fifth marker: *this position is
+a record rather than a location* is already what the ring says, and a new shape would be another
+thing to defend for a case the existing one describes exactly. What separates the two is the one
+thing that genuinely differs — lost carries an age the station measured, and this carries no age
+at all, because the console cannot measure one and must not invent one.
+
+The two are told apart above the fleet rather than within it, by the bar across the top: a quiet
+vehicle in a healthy fleet is one ring among eleven moving darts, while a quiet station is twelve
+rings and a bar that says so. Twelve rings with no explanation would read as twelve aircraft lost,
+which is a different emergency from the one actually happening.
+
 ### Luminance does the work
 
 | | relative luminance |
@@ -199,6 +218,7 @@ Three magnitudes, one cap, right-aligned in a slot of fixed width:
  1m 20s       under ten minutes — the seconds still matter here
     12m       beyond that — whole minutes; nobody is reading the seconds off a 12-minute gap
     1h+       one cap, so the slot can never widen
+     ?        no age to show: the station is unreachable and only it can measure one
 ```
 
 ![The age chip at three magnitudes](console-design/age-chip.svg)
@@ -213,6 +233,11 @@ The width is reserved even when the chip is absent, so its arrival does not shif
 computed. A browser clock thirty seconds off would otherwise render a live aircraft as lost
 or, far worse, a lost one as live — HAZ-01 delivered by clock skew, in a component nobody
 would think to suspect.
+
+There is exactly one duration the browser does measure, and it is not a vehicle's: how long the
+*console* has been waiting to hear anything at all. The station cannot report its own silence any
+more than a vehicle can, so about that the browser is the only witness there is. It is worth
+keeping the two apart in your head, because the first is forbidden and the second is required.
 
 ### A constraint the basemap imposes
 
@@ -325,12 +350,18 @@ sense, the state language is underspecified and this note is wrong.
 
 ## 8. The numbers this note does not own
 
-Two thresholds decide when the states in §2 apply, and neither is settled here:
+Three thresholds decide when the states in §2 apply, and none of them is settled here:
 
 - **stale** is 3 s, from MCS-002 — three times the slowest configured telemetry period,
   measured against the station clock.
 - **lost** is a second, longer threshold on the same mechanism, sourced where it is defined
   rather than here.
+- **station unreachable** is the console's own, and it is the same construction turned around:
+  three missed fleet ticks, so the console watches the station exactly the way MCS-002 has the
+  station watch a vehicle. It must be far shorter than the interval at which the console decides
+  to throw a dead connection away and open another — that number is sized for a reconnect policy,
+  and reconnect policies are patient. A console patient about *reconnecting* is fine; a console
+  patient about *saying it has stopped hearing anything* is the hazard.
 
 Nothing above bakes either number into a label, an example or a shape. `3s` appears in the
 storyboard as an illustration of the format, not as a specification; the states are defined
@@ -366,3 +397,27 @@ Still falsifiable, written down now rather than defended later:
 - **If the stale state stops being findable at twelve once the map has routes and conflict
   geometry on it**, the reserve channel is a slow pulse on the stale marker, and it should be
   spent there rather than on a brighter amber.
+
+## What the built console survived
+
+The above was a drawing. The console now renders this language against the real station, and it
+was driven at twelve on the real feed — twelve simulator processes on one circuit — before this
+paragraph was written.
+
+- **Everything §1 and §2 claim held**, including the one that was still only a drawing's word: one
+  hollow amber dart among eleven solid ones is found immediately, and greyscale keeps solid dart,
+  hollow dart and dashed ring apart with the hue removed entirely.
+- **The arithmetic was out by two.** The column-label row measures 23 px, not the 21 assumed
+  above — a border and two paddings, not a number anyone chose — which put the built total at 779
+  and left 21 spare rather than 23. The fix was to pin that row's height at 21 rather than to
+  restate the total here: every other term in that sum is a chosen number, and a term that comes
+  out at whatever the font renders at is one this note cannot state honestly.
+- **The lost ring wants butt caps, not round ones.** The drawing gives it `stroke-linecap="round"`,
+  which extends each dash by half a line width at both ends; at the size a marker actually renders
+  that very nearly closes the gaps, and the gaps are the channel. A ring that reads as solid at a
+  glance is a lost vehicle wearing stale's outline.
+- **Twelve aircraft on one 400 m circle fly slower than one does.** Twelve waypoints on that
+  circle are 207 m apart and the follower refuses a leg shorter than twice its capture radius, so
+  the fleet harness flies at 15 m/s where the single aircraft cruises at 22. Nothing in the state
+  language depends on it, but the drawing's 20.9 m/s was not a speed this aircraft could hold on
+  that circuit, and the note said it as though it were.

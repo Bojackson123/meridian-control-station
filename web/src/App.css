@@ -1,7 +1,307 @@
-/* The map is the page. `height: 100%` would need every ancestor up to `html` to have one too, and
-   fails silently to a zero-height container when any of them does not; `dvh` is measured against the
-   viewport directly and survives the mobile browser chrome that makes `vh` lie. */
-.map {
-  width: 100%;
+/* The console's layout, at the design note's arithmetic.
+
+   At the minimum supported viewport of 1280x800, in full:
+
+        48   station bar
+        28   panel header
+        21   column labels
+       624   twelve rows at 52
+        56   the abort block
+       ----
+       777   of 800 — 23 spare
+
+   Every term is written out because the note's first pass did not: it sized the rows at 56, counted
+   the rows and the two headers, forgot the abort block, and came to a confident 748. Built, it was
+   25 px over the viewport it claimed to fit, the panel scrolled, and the thing hanging off the
+   bottom edge was abort — the one control that may never be unreachable. Hence 52 px rows, and
+   hence the arithmetic spelled out where the next person can check it.
+
+   A thirteenth vehicle would scroll the panel. There cannot be one: the store rejects it, which is
+   the same bound arriving from the other side. */
+
+.console {
+  display: grid;
+
+  /* `dvh` rather than `100%`, which would need every ancestor up to `html` to have a height too and
+     fails silently to a zero-height container when any of them does not. It is also measured
+     against the viewport directly and survives the mobile browser chrome that makes `vh` lie. */
   height: 100dvh;
+  grid-template-rows: 48px 1fr;
+}
+
+.console-body {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+
+  /* Without this a grid row is sized by its content's minimum rather than by the track, and a
+     panel of twelve rows would push the console taller than the viewport instead of fitting in it
+     — which is the failure this whole layout is arranged around. */
+  min-height: 0;
+}
+
+.map {
+  height: 100%;
+  min-width: 0;
+}
+
+/* ── the station bar ─────────────────────────────────────────────────────────────────────────
+   Outside both the map and the panel, structurally, which is the whole point of it: nothing an
+   operator can do — pan, zoom, select, scroll — can put it off screen, because it is not inside
+   anything that scrolls. It holds its height at "connected" for the same reason: a bar that appears
+   when something goes wrong is a layout shift at the least convenient possible moment, and its
+   absence is indistinguishable from a console that has stopped evaluating. */
+
+.station-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.station-bar[data-station='unreachable'] {
+  color: var(--ink-bright);
+}
+
+.station-mark {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-dim);
+}
+
+.station-bar[data-station='unreachable'] .station-mark {
+  color: var(--critical);
+}
+
+/* ── the fleet panel ─────────────────────────────────────────────────────────────────────────── */
+
+.panel {
+  display: grid;
+  grid-template-rows: 28px auto 1fr auto;
+  min-height: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--rule);
+}
+
+.panel-hd {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+
+.panel-hd b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.panel-hd span {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Column labels once, at the top, rather than a unit repeated twelve times. The tracks match .r2's
+   exactly, so a label sits over the column it names. */
+.col-hd,
+.r2 {
+  display: grid;
+  grid-template-columns: 26px 118px 56px 44px 40px;
+  gap: 8px;
+}
+
+/* Height set rather than left to the padding and the line box. It is a term in the arithmetic at
+   the top of this file, and a term that comes out at whatever the font happens to render at is a
+   number the note cannot state. Measured before it was pinned: 23 px, which put the total at 779
+   and left 21 spare rather than 23 -- fine, and not what the published note says. */
+.col-hd {
+  height: 21px;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+}
+
+.col-hd i {
+  font-style: normal;
+}
+
+/* `align-self: start` so twelve rows sit at the top of the track rather than being stretched down
+   it, and so a fleet of three does not space itself out over the panel. */
+.rows {
+  align-self: start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  height: 52px;
+  padding: 6px 10px 0;
+  border-bottom: 1px solid var(--row-rule);
+  display: grid;
+  grid-template-rows: 20px 1fr;
+}
+
+/* Line one: airy, and where the state is read from. */
+.r1 {
+  display: grid;
+  grid-template-columns: 26px 1fr 62px 40px 14px;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The one place the panel's colours are decided. The badge, the id and the chip all take it through
+   `currentColor`, so a state cannot come to mean one colour in one part of the row and another in
+   the next.
+
+   Live rests at --ink rather than at --ink-bright, which is where the map's live marker sits. The
+   two surfaces are answering different questions: on the map, live has to be legible over a
+   graticule and is the brightest thing there; in a panel of twelve rows, eleven healthy ones should
+   contribute very little, and the one that grew a number should be found without being looked
+   for. */
+.row[data-state='live'] {
+  color: var(--ink);
+}
+
+.row[data-state='stale'] {
+  color: var(--amber);
+}
+
+.row[data-state='lost'],
+.row[data-state='unknown'] {
+  color: var(--ink-dim);
+}
+
+.badge {
+  width: 18px;
+  height: 18px;
+
+  /* The dart's stroked outline reaches slightly past the 60-unit box at the tips. Clipped, the
+     hollow state loses its nose, which is the channel that separates it from lost. */
+  overflow: visible;
+}
+
+.vid {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* The slot is reserved whether or not a chip is in it. That is what stops the row shifting at the
+   moment a vehicle goes quiet — the worst possible moment to shift. */
+.slot {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip,
+.map-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  font-variant-numeric: tabular-nums;
+}
+
+.batt {
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.row[data-state='lost'] .batt,
+.row[data-state='unknown'] .batt {
+  color: inherit;
+}
+
+/* The link is the vehicle's claim about its own radio and is never derived from staleness — so it
+   is coloured by itself, not by the row. */
+.link {
+  font-size: 11px;
+  text-align: center;
+}
+
+.link[data-link='Healthy'] {
+  color: var(--ink);
+}
+
+.link[data-link='Degraded'] {
+  color: var(--amber);
+}
+
+.link[data-link='Lost'] {
+  color: var(--critical);
+}
+
+.link[data-link='Unknown'] {
+  color: var(--ink-dim);
+}
+
+/* Line two: resting values, low contrast. The eye is pulled by luminance, not by reading. */
+.r2 {
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.r2 .pos {
+  grid-column: 2;
+}
+
+.row[data-state='lost'] .r2,
+.row[data-state='unknown'] .r2 {
+  opacity: 0.72;
+}
+
+/* Held, and empty. See FleetPanel.tsx for why there is no disabled button in here. */
+.abort-reserved {
+  height: 56px;
+  border-top: 1px solid var(--rule);
+}
+
+/* ── the age chips on the map ────────────────────────────────────────────────────────────────
+   DOM nodes over the canvas rather than MapLibre text fields, because the basemap style has no
+   `glyphs` key and must never grow one. See vehicles/chips.ts. */
+
+.chips {
+  position: absolute;
+  inset: 0;
+
+  /* Or the chips would swallow a drag that started on one, and the map would stick for no reason
+     the operator could see. */
+  pointer-events: none;
+}
+
+.map-chip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--map);
+  white-space: nowrap;
+
+  /* The chip is placed by `transform` from the projected position, so this has to be the origin the
+     transform starts from. */
+  transform-origin: 0 0;
+}
+
+.map-chip[data-state='stale'] {
+  color: var(--amber);
+}
+
+.map-chip[data-state='lost'],
+.map-chip[data-state='unknown'] {
+  color: var(--ink-dim);
 }
