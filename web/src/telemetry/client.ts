@@ -87,8 +87,9 @@ export function connectTelemetry(onFleet: (fleet: Fleet) => void): () => void {
 
   //  Asked for after the subscription is open, never before. A frame published between the two calls
   //  is lost in the other order, and the vehicle it belonged to sits at a stale position until its
-  //  next one -- a whole second at the feed's rate, and indefinitely for a vehicle that has just
-  //  stopped reporting. This way the gap does not exist.
+  //  next one -- a quarter second at the rate the aircraft reports, and indefinitely for a vehicle
+  //  that has just stopped reporting. The second case is the one that matters, and it does not
+  //  depend on the rate. This way the gap does not exist.
   //
   //  Repeated on every reopen as well as at startup, because that is precisely when a snapshot is
   //  worth most: the fleet moved while the console was disconnected, and one request corrects every

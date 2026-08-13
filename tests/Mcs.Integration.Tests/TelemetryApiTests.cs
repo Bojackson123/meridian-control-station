@@ -30,19 +30,14 @@ public class TelemetryApiTests
 {
     /// <summary>How long any of these will wait for the station to do something.</summary>
     /// <remarks>
-    /// Generous against <see cref="LiveFeed"/>'s 5 Hz -- seventy-five frames' worth -- because the
-    /// cost of a tight bound is a suite that goes red on a loaded CI runner for no defect.
+    /// Nothing here now waits on a feed's rate -- <see cref="TestVehicle"/> reports when the test
+    /// says so -- so this bounds the station's own work: a request served, a subscription released.
+    /// Still generous, because the cost of a tight bound is a suite that goes red on a loaded CI
+    /// runner for no defect.
     /// </remarks>
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(15);
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
-
-    /// <summary>
-    /// The feed turned up from the suite default of 0.1 Hz, which is set to keep it out of the log.
-    /// A test needing two frames at that rate waits twenty seconds for them.
-    /// </summary>
-    private static readonly Dictionary<string, string?> LiveFeed =
-        new(StringComparer.Ordinal) { ["FakeFeed:RateHz"] = "5" };
 
     /// <summary>
     /// Matches what the API writes: camelCase, and enums as names. Spelled out here rather than
@@ -57,21 +52,29 @@ public class TelemetryApiTests
     public TelemetryApiTests(PostgresFixture postgres) => _postgres = postgres;
 
     [Fact]
-    public async Task Vehicles_ReturnsTheFeedsVehicleOnceItHasReported()
+    public async Task Vehicles_ReturnsAVehicleOnceItHasReported()
     {
-        await using StationApplication application = await StartAsync(
-            nameof(Vehicles_ReturnsTheFeedsVehicleOnceItHasReported), LiveFeed);
+        await using StationApplication application =
+            await StartAsync(nameof(Vehicles_ReturnsAVehicleOnceItHasReported));
         using HttpClient client = application.CreateClient();
 
-        VehicleFrameResponse[] vehicles = await EventuallyAsync(
-            async token => await client.GetFromJsonAsync<VehicleFrameResponse[]>(
-                TelemetryEndpoints.SnapshotPath, WireFormat, token) ?? [],
-            snapshot => snapshot.Length > 0,
-            "the snapshot never showed the vehicle the fake feed is flying");
+        TestVehicle vehicleUnderTest = new(application.Services);
+        vehicleUnderTest.Report();
+
+        //  Bounds the request rather than a poll -- there is nothing to wait for. Left untokened it
+        //  would fall back to HttpClient's own 100 seconds and fail naming neither the endpoint nor
+        //  the wait, which is the hang this class is arranged to avoid.
+        using CancellationTokenSource deadline = new(Patience);
+
+        //  No polling: the frame is in the store before the request is made, so an empty snapshot
+        //  here is a defect rather than a race, and it fails immediately instead of after fifteen
+        //  seconds of looking.
+        VehicleFrameResponse[] vehicles = await client.GetFromJsonAsync<VehicleFrameResponse[]>(
+            TelemetryEndpoints.SnapshotPath, WireFormat, deadline.Token) ?? [];
 
         VehicleFrameResponse vehicle = Assert.Single(vehicles);
 
-        Assert.Equal("UAV-01", vehicle.VehicleId);
+        Assert.Equal(vehicleUnderTest.Id, vehicle.VehicleId);
         Assert.Equal(LinkStatus.Healthy, vehicle.LinkStatus);
         Assert.Equal(AltitudeReference.Msl, vehicle.Altitude.Reference);
 
@@ -106,9 +109,17 @@ public class TelemetryApiTests
     [Fact]
     public async Task Stream_IsFramedAsServerSentEventsAndTheVehicleMoves()
     {
-        await using StationApplication application = await StartAsync(
-            nameof(Stream_IsFramedAsServerSentEventsAndTheVehicleMoves), LiveFeed);
+        await using StationApplication application =
+            await StartAsync(nameof(Stream_IsFramedAsServerSentEventsAndTheVehicleMoves));
         using HttpClient client = application.CreateClient();
+
+        TestVehicle vehicleUnderTest = new(application.Services);
+
+        //  Reported before the stream is opened, not after: Subscribe seeds a new subscriber with
+        //  the latest frame per vehicle under the same gate it registers on, and that seed is what
+        //  puts the first bytes on the wire. Without a frame already in the store this request
+        //  would block on its own headers until the heartbeat fired.
+        vehicleUnderTest.Report();
 
         using CancellationTokenSource deadline = new(Patience);
         using HttpResponseMessage response = await OpenStreamAsync(client, deadline.Token);
@@ -125,12 +136,17 @@ public class TelemetryApiTests
 
         await using Stream body = await response.Content.ReadAsStreamAsync(deadline.Token);
 
+        //  The second one live, and it cannot be missed: registration is eager rather than deferred
+        //  to the first enumeration, so by the time this request has a response at all the
+        //  subscription exists and is buffering.
+        vehicleUnderTest.Report();
+
         IReadOnlyList<VehicleFrameResponse> frames =
             await ReadTelemetryAsync(body, count: 2, deadline.Token);
 
-        //  Two frames from a vehicle flying a circuit have to differ somewhere. Equal positions
-        //  mean a repeated frame or a stalled course, and both render as a live map showing
-        //  something that is not happening.
+        //  Two frames from a moving vehicle have to differ somewhere. Equal positions mean a
+        //  repeated frame or a stalled course, and both render as a live map showing something
+        //  that is not happening.
         Assert.True(
             frames[0].LatitudeDegrees != frames[1].LatitudeDegrees
                 || frames[0].LongitudeDegrees != frames[1].LongitudeDegrees,
@@ -148,14 +164,16 @@ public class TelemetryApiTests
         // ships it as an integer someone may renumber, puts the requirement back exactly where it
         // came from -- at the boundary. Asserted against raw text rather than a deserialised
         // object, because a deserialiser configured like the server's would agree with either.
-        await using StationApplication application = await StartAsync(
-            nameof(Vehicles_CarryTheAltitudeReferenceAsAName), LiveFeed);
+        await using StationApplication application =
+            await StartAsync(nameof(Vehicles_CarryTheAltitudeReferenceAsAName));
         using HttpClient client = application.CreateClient();
 
-        string snapshot = await EventuallyAsync(
-            async token => await client.GetStringAsync(TelemetryEndpoints.SnapshotPath, token),
-            body => body.Length > "[]".Length,
-            "the snapshot stayed empty");
+        new TestVehicle(application.Services).Report();
+
+        using CancellationTokenSource deadline = new(Patience);
+
+        string snapshot =
+            await client.GetStringAsync(TelemetryEndpoints.SnapshotPath, deadline.Token);
 
         Assert.Contains("\"altitude\":{", snapshot, StringComparison.Ordinal);
         Assert.Contains("\"reference\":\"Msl\"", snapshot, StringComparison.Ordinal);
@@ -171,8 +189,7 @@ public class TelemetryApiTests
 
         await using StationApplication application = await StartAsync(
             nameof(Stream_WhenTheClientHangsUp_ReleasesTheSubscription),
-            LiveFeed,
-            services =>
+            configureServices: services =>
             {
                 services.AddSingleton<InMemoryTelemetryStore>();
                 services.AddSingleton<ITelemetryStore>(provider =>
@@ -180,6 +197,10 @@ public class TelemetryApiTests
                         provider.GetRequiredService<InMemoryTelemetryStore>()));
             });
         using HttpClient client = application.CreateClient();
+
+        //  Before the stream opens, so the subscription's seed carries it and the response does not
+        //  wait on a heartbeat for its first byte.
+        new TestVehicle(application.Services).Report();
 
         using (CancellationTokenSource abort = new(Patience))
         {
@@ -206,11 +227,10 @@ public class TelemetryApiTests
     /// </summary>
     private async Task<StationApplication> StartAsync(
         string label,
-        IReadOnlyDictionary<string, string?>? settings = null,
         Action<IServiceCollection>? configureServices = null)
     {
         StationApplication application =
-            new(await _postgres.CreateDatabaseAsync(label), settings, configureServices);
+            new(await _postgres.CreateDatabaseAsync(label), configureServices);
 
         //  The host is built lazily on first use, and the migration runs as part of starting it.
         _ = application.Services.GetService(typeof(SchemaMigrator));
@@ -321,10 +341,11 @@ public class TelemetryApiTests
     /// notably the migration -- in place.
     /// </summary>
     /// <remarks>
-    /// Every adapter rather than just the fake feed, because "nothing has reported" is the state
-    /// under test and a second source that happens to be silent would make it true by luck. The
-    /// service that runs them stays registered and starts with nothing to run, which is a state the
-    /// station is expected to survive.
+    /// Every adapter rather than the one the station happens to register today, because "nothing
+    /// has reported" is the state under test and a source that is merely silent would make it true
+    /// by luck -- the MAVLink adapter binds a port nothing transmits to and would do exactly that.
+    /// The service that runs them stays registered and starts with nothing to run, which is a state
+    /// the station is expected to survive.
     /// </remarks>
     private static void RemoveEveryAdapter(IServiceCollection services)
     {

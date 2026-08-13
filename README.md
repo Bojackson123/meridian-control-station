@@ -5,15 +5,20 @@
 A ground control station for simulated uncrewed vehicles: live fleet telemetry, mission
 planning with pre-flight conflict checking, and command with a durable audit trail.
 
-![The console: one simulated vehicle on the bundled offline basemap, updating at 1 Hz](docs/demo-v0.1.gif)
+![The console at v0.1: one simulated vehicle on the bundled offline basemap, updating at 1 Hz](docs/demo-v0.1.gif)
+
+<sub>Recorded at `v0.1`, when the vehicle came from a hardcoded feed. The console now draws an
+aircraft arriving as MAVLink over UDP; a new recording lands with the next tag.</sub>
 
 ---
 
 ## What this is
 
-A personal project, built in the open one working slice at a time. This is `v0.1` — the
-first tag, and a walking skeleton: one fake vehicle on a map, a database the station
-migrates on startup, structured logs, and the whole thing under one `docker compose up`.
+A personal project, built in the open one working slice at a time. This is `v0.1` plus the
+MAVLink work that has landed since: a simulated aircraft flying a route in its own process,
+transmitting real MAVLink v2 over UDP to a station that decodes it onto a map — with a database
+the station migrates on startup, structured logs, and the whole thing under one
+`docker compose up`.
 
 The table below says exactly what runs at this tag, and nothing in this file describes
 anything that doesn't. It does not connect to real aircraft.
@@ -62,24 +67,28 @@ authentication — the API reports it and exits non-zero rather than starting wi
 
 ## What's real at this tag
 
-A hardcoded telemetry feed flying a vehicle around a closed circuit at 1 Hz, into a bounded
-in-memory store, served over HTTP as a snapshot and a live event stream — and a Postgres
-database the station migrates on startup and reports the state of over HTTP. The console
-draws that feed: an offline basemap that runs with the network off, with the fleet on it,
-each vehicle a marker pointed along the heading it reported.
+An aircraft flying a waypoint route in a separate process, transmitting MAVLink v2 over UDP to a
+hand-written parser, decoded into a bounded in-memory store and served over HTTP as a snapshot and
+a live event stream — and a Postgres database the station migrates on startup and reports the state
+of over HTTP. The console draws what arrives: an offline basemap that runs with the network off,
+with the fleet on it, each vehicle a marker pointed along the heading it reported.
+
+There is no fake feed behind any of it. The hardcoded one that flew at `v0.1` was deleted once the
+MAVLink path could replace it, rather than left behind a configuration flag — a second source of
+truth about what the console is showing is a debugging cost with no upside.
 
 | | Status at `v0.1` |
 | --- | --- |
 | Telemetry model and ingest boundary | working, tested |
 | Bounded store — 12 vehicles, per-vehicle history, live subscriptions | working, tested |
-| Fake vehicle feed | working, tested |
+| Fake vehicle feed | **deleted after `v0.1`** — the MAVLink path replaced it, and it was removed rather than left switchable |
 | Structured JSON logging | working |
 | Postgres — schema migration on startup, `/health` and `/health/db` | working, tested |
 | Telemetry HTTP API — `/api/vehicles` and an SSE `/api/telemetry/stream` | working, tested |
 | Offline basemap — dark MapLibre style, zoom-adaptive graticule, no third-party requests | working |
 | Map console — the fleet on the basemap, each marker oriented by heading | working; a vehicle that reported no heading is drawn without a nose rather than pointed north |
 | Persistence of domain data | not yet — the schema mechanism is proven, the tables that use it arrive with the features that define them |
-| Console state language — live / stale / lost, alerts | not yet — a dead feed shows only in the browser console |
+| Console state language — live / stale / lost, alerts | not yet — a link that has gone quiet shows only in the browser console |
 | Docker Compose — database, API, console and simulator, one command, offline | working |
 | MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | landed after `v0.1`, tested |
 | MAVLink message decode — the four messages the console displays, assembled into telemetry | landed after `v0.1`, tested against the same vectors |
@@ -94,11 +103,11 @@ each vehicle a marker pointed along the heading it reported.
 
 ```
 src/Mcs.Core        the domain — telemetry model, ingest boundary, bounded store
-src/Mcs.Api         ASP.NET Core host; the fake feed lives here for now
+src/Mcs.Api         ASP.NET Core host; the HTTP surface, persistence and observability
 src/Mcs.Adapters    vehicle adapters; Mavlink/ holds the hand-written v2 codec and the UDP link
 src/Mcs.Simulator   the aircraft — kinematics, a waypoint follower, and MAVLink out over UDP
 web/                React + TypeScript + Vite console; the basemap is served from web/public
-tests/              unit tests for the core, the feed, the codec and the aircraft; integration
+tests/              unit tests for the core, the host, the codec and the aircraft; integration
                     tests against a real Postgres via Testcontainers; a system suite that
                     drives the running compose stack over HTTP, and skips when no stack is up
 deploy/migrations/  numbered .sql files, applied by the API on startup
@@ -116,9 +125,11 @@ core that has grown a web, database or protocol dependency makes that claim inde
 what enforces it. What the core does hold is the contract every telemetry source implements —
 start producing telemetry until stopped, and nothing else. It was written only once there were
 two implementations to derive it from, so it describes what they have in common rather than
-what one of them happens to do: the MAVLink link in `Mcs.Adapters`, which decodes a wire
-format, and the fake feed, which stays in the API host because it invents telemetry instead of
-decoding anything. Whether the M3 ground vehicle can be added without touching a core file is
+what one of them happens to do: the MAVLink link in `Mcs.Adapters`, which decodes a wire format,
+and the hardcoded feed that used to invent telemetry in the API host. Only the first still
+exists — the second was deleted once it had served that purpose — and the interface has
+deliberately not been re-derived from the survivor, since a contract narrowed to one link is no
+longer vehicle-agnostic. Whether the ground vehicle can be added without touching a core file is
 the test of that, and it will be run against a real diff.
 
 ---
@@ -131,9 +142,10 @@ the test of that, and it will be run against a real diff.
   a bank-limited turn, a bounded climb rate, and no wind, drag or mass. The one property spent
   time on is the turn, because a later separation margin is a claim about it; a better aircraft
   would not make the station better.
-- Two vehicles by default, one from the simulator over UDP and one from the in-process fake feed
-  that predates it. The fake one is on its way out. The 12-vehicle bound is designed into the data
-  structures and tested, not demonstrated on screen — set `FakeFeed__VehicleCount=12` to see it.
+- One aircraft. The simulator flies a single vehicle, and the station's 12-vehicle bound is
+  designed into the data structures and covered by tests — including the rejection of a
+  thirteenth — but it is **not demonstrated on screen**. Showing it would mean inventing vehicles,
+  which is the thing that was just deleted, so it is stated rather than staged.
 - Telemetry is in-memory and bounded. There is no durable history, and that is a stated
   non-goal rather than a gap.
 - No authentication. Anything the API exposes is exposed to anyone who can reach it.
@@ -172,8 +184,6 @@ the test of that, and it will be run against a real diff.
 
 In order, without dates:
 
-- **Deleting the fake feed.** The MAVLink path now carries a real aircraft end to end; the two
-  run side by side for exactly as long as it takes to compare them.
 - **A console state language.** Live, stale and lost as things an operator can see, so the
   last limitation above stops being one.
 - **Commands and tasking.** A command lifecycle with a durable audit trail, behind an
@@ -226,10 +236,10 @@ Windows; drop the pipe and read the JSON raw, or install it.
 
 ```
 event: telemetry
-data: {"vehicleId":"UAV-01","latitudeDegrees":34.7333065,"longitudeDegrees":-86.5835293,
-       "altitude":{"meters":300,"reference":"Msl"},"groundSpeedMetersPerSecond":20.9439510,
-       "headingDegrees":126.0114069,"batteryPercent":99.5554147,"linkStatus":"Healthy",
-       "receivedAtUtc":"2026-08-09T22:54:29.3154398+00:00"}
+data: {"vehicleId":"MAV-001","latitudeDegrees":34.7336141,"longitudeDegrees":-86.5886270,
+       "altitude":{"meters":330.75,"reference":"Msl"},"groundSpeedMetersPerSecond":22,
+       "headingDegrees":86,"batteryPercent":95,"linkStatus":"Healthy",
+       "receivedAtUtc":"2026-08-13T12:56:58.1210597+00:00"}
 ```
 
 `groundSpeedMetersPerSecond`, `headingDegrees` and `batteryPercent` are nullable and arrive as
@@ -253,20 +263,34 @@ why and exits non-zero. An API that came up anyway would be reporting itself hea
 something it depends on was missing, which is the same failure the console itself is built
 to avoid — and on screen it looks like a quiet fleet rather than a broken station.
 
-The interesting output is on stdout. In Development the feed logs one frame per second:
+The interesting output is on stdout, as compact JSON. Wrapped here for width; each of these is
+one line:
 
 ```
-info: Mcs.Api.FakeFeed.FakeVehicleFeed[0]
-      Fake vehicle feed started: 1 vehicle(s) at 1 Hz on a 400 m circuit about
-      34.7304, -86.5861, one lap in 120 s at 20.94 m/s.
-dbug: Mcs.Api.FakeFeed.FakeVehicleFeed[0]
-      Fake vehicle feed wrote VehicleTelemetry { Id = UAV-01, LatitudeDegrees = 34.7339882,
-      LongitudeDegrees = -86.585868, Altitude = 300 m Msl, GroundSpeedMetersPerSecond = 20.94,
-      HeadingDegrees = 93.04, BatteryPercent = 99.96, LinkStatus = Healthy }.
+{"@mt":"Starting {AdapterCount} vehicle adapter(s): {Adapters}.","AdapterCount":1,
+ "Adapters":"mavlink-udp","SourceContext":"Mcs.Api.Adapters.VehicleAdapterService"}
+
+{"@mt":"MAVLink UDP adapter listening on {EndPoint}.","EndPoint":"0.0.0.0:14550",
+ "SourceContext":"Mcs.Adapters.Mavlink.MavlinkUdpAdapter"}
+
+{"@mt":"MAVLink link: {Link}. Framing: {Framing}. Decode: {Decode}.",
+ "Link":"datagrams=1023, bytes=35571, receiveErrors=0, written=482, vehiclesRejected=0, slowDecodes=0",
+ "Framing":"parsed=1023, crcFailures=0, resyncedBytes=0, unknown=0, v1=0, signed=0, incompatFlags=0",
+ "Decode":"decoded=1023, rejected=0, emitted=482, positionsWithoutHud=1",
+ "SourceContext":"Mcs.Adapters.Mavlink.MavlinkUdpAdapter"}
 ```
 
-The numbers cohere, and it's worth checking that they do: consecutive frames are ~20.9 m
-apart against a reported 20.94 m/s, and the heading advances 3°/s — one 360° lap in 120 s.
+The link statistics are periodic rather than per frame, because a ground station sees far too
+much traffic for a line each. The numbers cohere, and it is worth checking that they do:
+`parsed` equals `datagrams` because the simulator sends one frame per datagram, and `written`
+is 482 of 1023 because only `GLOBAL_POSITION_INT` completes a telemetry frame — 4 Hz out of the
+8.5 Hz the four message types add up to. `positionsWithoutHud=1` is the first position of the
+run arriving before any `VFR_HUD` had been seen, which is exactly why speed and heading are
+nullable on the wire.
+
+Nothing in the parser logs. Every discard — a bad CRC, an unknown message id, a signed frame —
+increments a counter above instead, since a log line per unknown message would train whoever is
+watching to ignore the stream.
 
 ### The console
 
@@ -274,15 +298,18 @@ apart against a reported 20.94 m/s, and the heading advances 3°/s — one 360°
 cd web && npm install && npm run dev
 ```
 
-A dark map centred on the feed's circuit, a scale bar, a graticule that changes spacing with
+A dark map centred on the aircraft's route, a scale bar, a graticule that changes spacing with
 the zoom — and the fleet on top of it, one marker per vehicle, rotated to the heading in its
 latest frame. **Start the API first:** the dev server proxies `/api` to it on port 5271, and
-with nothing behind that proxy the basemap draws but stays empty.
+with nothing behind that proxy the basemap draws but stays empty. The aircraft is a third
+process — `dotnet run --project src/Mcs.Simulator` — and without it the station is listening to
+an empty sky, which looks exactly the same.
 
-The marker steps once a second rather than gliding, and that is the interesting part. Smooth
-motion means interpolating between frames, which puts the vehicle at a position it never
-reported — a nicer-looking console that is lying about where something is. At 1 Hz you are
-watching the station show you exactly what it was told, and nothing else.
+The marker steps rather than gliding, and that is the interesting part. Smooth motion means
+interpolating between frames, which puts the vehicle at a position it never reported — a
+nicer-looking console that is lying about where something is. At four position reports a second
+you are watching the station show you exactly what it was told, and nothing else; on a slower
+link the steps get coarser, and that is the link being visible rather than a defect.
 
 What the console does *not* do yet: nothing on screen distinguishes a vehicle reporting now
 from one that stopped ten minutes ago. Stop the API and the markers stay exactly where they
@@ -303,24 +330,38 @@ exactly like the background, so it would be several hundred KB of committed geod
 for the zoom levels an operator never uses. The reasoning is recorded in the style file, and
 a land layer drops in later without touching anything else.
 
-### Configuring the feed
+### Configuring the link and the aircraft
 
-The `FakeFeed` section of `appsettings.json`, overridable by environment variable
-(`FakeFeed__VehicleCount=12`):
+Where the station listens — the `Adapters:Mavlink` section of the API's `appsettings.json`,
+overridable as `Adapters__Mavlink__Port`:
 
 | Setting | Default | Range |
 | --- | --- | --- |
-| `VehicleCount` | 1 | 1–12 |
-| `RateHz` | 1.0 | 0.1–10 |
-| `OriginLatitudeDegrees` | 34.7304 | ±85 |
-| `OriginLongitudeDegrees` | -86.5861 | ±180 |
-| `RadiusMeters` | 400 | 50–50 000 |
-| `OrbitPeriodSeconds` | 120 | 10–3 600 |
-| `AltitudeMetersMsl` | 300 | -500–20 000 |
-| `EnduranceSeconds` | 2 700 | 60–86 400 |
+| `ListenAddress` | `0.0.0.0` | any address that parses |
+| `Port` | 14550 | 0–65535, where 0 takes any free port |
 
-Values are validated at startup: a setting outside its range stops the host with a message
-naming it, rather than flying a plausible-looking circuit somewhere nobody meant.
+There is deliberately no `Enabled` flag. An adapter that is configured but silently not running
+is the failure this section exists to prevent, and which adapters exist is a question for the
+host's registrations, where it can be read.
+
+What flies — the `Simulator` section of the simulator's own `appsettings.json`, overridable as
+`Simulator__TargetHost` (which is how Compose points it at the API):
+
+| Setting | Default | Notes |
+| --- | --- | --- |
+| `TargetHost` / `TargetPort` | `127.0.0.1` / 14550 | a name that will not resolve is fatal at startup |
+| `SystemId` | 1 | the station names the vehicle from this — system 1 becomes `MAV-001` |
+| `CruiseSpeedMetersPerSecond` | 22 | with the bank limit, this *derives* the turn radius |
+| `MaxBankAngleDegrees` | 25 | `R = v²/(g·tan φ)`, never configured directly |
+| `StepHz` | 20 | the physics step, independent of every message rate |
+| `HeartbeatHz` / `SysStatusHz` / `VfrHudHz` / `GlobalPositionHz` | 1 / 0.5 / 3 / 4 | deliberately non-harmonic |
+| `Route` | four waypoints | at least two required |
+
+Both are validated at startup: a setting outside its range stops the host with a message naming
+it, rather than flying a plausible-looking route somewhere nobody meant. The cross-property
+checks are the interesting ones — a message rate faster than the physics step is rejected, and
+so is a capture radius smaller than the turn radius the envelope implies, because under it the
+aircraft orbits a waypoint it can never reach and renders as a tidy loiter.
 
 ---
 

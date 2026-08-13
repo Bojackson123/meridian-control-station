@@ -67,12 +67,16 @@ public sealed class VehicleAdapterService : BackgroundService
             string.Join(", ", _adapters.Select(adapter => adapter.Name)));
 
         //  Linked, and cancelled by the first adapter to fail. Without that step this method is a
-        //  trap: WhenAll completes only when every task does, so a MAVLink adapter that could not
-        //  bind would fault into a WhenAll still waiting on a fake feed that runs until cancelled
-        //  -- forever. The host would never see the exception, the station would keep serving, and
-        //  the dead link would show as a console updating happily from whatever source remained.
-        //  That is the failure this class documents itself as preventing, arrived at by the
-        //  mechanism meant to prevent it.
+        //  trap as soon as a second source exists: WhenAll completes only when every task does, so
+        //  an adapter that could not bind would fault into a WhenAll still waiting on a healthy one
+        //  that runs until cancelled -- forever. The host would never see the exception, the
+        //  station would keep serving, and the dead link would show as a console updating happily
+        //  from whatever source remained. That is the failure this class documents itself as
+        //  preventing, arrived at by the mechanism meant to prevent it.
+        //
+        //  One adapter is registered today, which makes this look redundant and is exactly when it
+        //  would get deleted. The set is plural by construction and a ground adapter joins it, so
+        //  the guard is written for the shape rather than for the count.
         using CancellationTokenSource stopping =
             CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 

@@ -135,9 +135,10 @@ public sealed class SmokeStackFixture : IAsyncLifetime
 /// Puts every smoke test in one collection, so they share the fixture and run one after another.
 /// </summary>
 /// <remarks>
-/// Sequential is the point as much as sharing is: these run against one stack with one fake vehicle
-/// on it, and eight tests opening streams at once would tell us about the runner's scheduling
-/// rather than the station's behaviour. At 1 Hz the whole suite still lands well inside its budget.
+/// Sequential is the point as much as sharing is: these run against one stack with one simulated
+/// aircraft flying at it, and eight tests opening streams at once would tell us about the runner's
+/// scheduling rather than the station's behaviour. At 4 Hz the whole suite still lands well inside
+/// its budget -- comfortably faster than the 1 Hz it was sized against.
 /// </remarks>
 [CollectionDefinition(Name)]
 public sealed class SmokeCollection : ICollectionFixture<SmokeStackFixture>

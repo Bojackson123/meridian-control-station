@@ -65,11 +65,12 @@ internal sealed record VehicleFrame(
     double LongitudeDegrees,
     Altitude Altitude,
 
-    //  Nullable, matching the console's own types. Declaring these as `double` would still pass
-    //  today, because the fake feed reports both on every frame -- and would throw the first time a
-    //  real adapter emitted a position before its speed and heading were known. That is precisely
-    //  the failure this project exists to catch, so the contract is widened deliberately rather
-    //  than left to be discovered against a live stack.
+    //  Nullable, matching the console's own types. This was widened in anticipation of a real
+    //  adapter emitting a position before its speed and heading were known, back when the feed
+    //  reported both on every frame and `double` would have passed. It is no longer hypothetical:
+    //  the station decodes position and speed from two different MAVLink messages arriving at two
+    //  different rates, and the adapter's own counters record positionsWithoutHud on an ordinary
+    //  run. Declaring these non-nullable would throw against the stack this suite drives.
     double? GroundSpeedMetersPerSecond,
     double? HeadingDegrees,
     double? BatteryPercent,

@@ -778,8 +778,10 @@
       <code>states.svg</code> and <code>age-chip.svg</code>.
     </p>
     <p>
-      The circuit, speed and origin mirror <code>CircularCourse</code> and the
-      <code>FakeFeed</code> defaults. If those change, this changes.
+      The circuit, speed and origin mirrored the hardcoded feed the station flew when this was
+      drawn. That feed has since been deleted and the station flies a MAVLink aircraft on a
+      waypoint route instead, so these numbers are now illustrative rather than a copy of
+      anything shipping — the drawing is about the state language, not the flight path.
     </p>
   </footer>
 
@@ -788,9 +790,13 @@
 <script>
   //  ── The circuit ──────────────────────────────────────────────────────────────────────
   //
-  //  These are not invented for the drawing. They mirror CircularCourse and the FakeFeed
-  //  defaults the station actually ships with, because a mockup flying a different pattern
-  //  from the system is a mockup that answers a question nobody asked. Keep them in step.
+  //  These were not invented for the drawing: they mirrored the hardcoded feed the station flew
+  //  when it was made, because a mockup flying a different pattern from the system is a mockup
+  //  that answers a question nobody asked. That feed is gone and the station now flies a MAVLink
+  //  aircraft on a waypoint route, so the circuit below no longer tracks anything shipping. Left
+  //  as it is on purpose -- this drawing exists to pin the live/stale/lost visual language, and
+  //  redrawing the flight path would change nothing about that while invalidating the SVGs cut
+  //  from it.
   //
   //  The one deliberate divergence is the battery, below.
 
@@ -827,9 +833,9 @@
    * Where a vehicle is, and which way it is pointing, at one instant.
    *
    * Bearing zero is due north of the centre and increases clockwise, so north takes the
-   * cosine and east the sine — the transpose of the usual convention, and the same one
-   * CircularCourse uses. Getting it the other way round flies the circuit anticlockwise with
-   * a heading 180 degrees out, and neither error is visible on its own.
+   * cosine and east the sine — the transpose of the usual convention, and the one the station's
+   * own geometry uses. Getting it the other way round flies the circuit anticlockwise with a
+   * heading 180 degrees out, and neither error is visible on its own.
    */
   function courseAt(phase, seconds) {
     const bearing = 2 * Math.PI * (seconds / PERIOD_S + phase);

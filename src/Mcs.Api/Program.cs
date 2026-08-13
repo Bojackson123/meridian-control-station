@@ -2,7 +2,6 @@ using System.Text.Json.Serialization;
 
 using Mcs.Adapters.Mavlink;
 using Mcs.Api.Adapters;
-using Mcs.Api.FakeFeed;
 using Mcs.Api.Observability;
 using Mcs.Api.Persistence;
 using Mcs.Api.Telemetry;
@@ -53,28 +52,25 @@ try
     builder.Services.ConfigureHttpJsonOptions(options =>
         options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
-    // ValidateOnStart, so a bad FakeFeed section stops the host with the offending setting named.
-    builder.Services
-        .AddOptions<FakeFeedOptions>()
-        .Bind(builder.Configuration.GetSection(FakeFeedOptions.SectionName))
-        .ValidateDataAnnotations()
-        .ValidateOnStart();
-
-    // Same treatment, and it matters more here: an address that binds but receives nothing is
-    // indistinguishable from a vehicle that is not transmitting, so the section is checked before
-    // the socket is opened rather than diagnosed from an empty map afterwards.
+    // ValidateOnStart, so a bad section stops the host with the offending setting named. That
+    // matters more for a link than for most configuration: an address that binds but receives
+    // nothing is indistinguishable from a vehicle that is not transmitting, so the section is
+    // checked before the socket is opened rather than diagnosed from an empty map afterwards.
     builder.Services
         .AddOptions<MavlinkAdapterOptions>()
         .Bind(builder.Configuration.GetSection(MavlinkAdapterOptions.SectionName))
         .ValidateDataAnnotations()
         .ValidateOnStart();
 
-    // Both sources, running side by side. The fake feed is what the console has shown since the
-    // first tag and it stays until the simulator can replace it -- the real path is built next to a
-    // working display, never into a void, so that a real aircraft behaving oddly is judged against a
-    // known-good one flying beside it. One of these two is deleted, not disabled, once that
-    // comparison has been made.
-    builder.Services.AddSingleton<IVehicleAdapter, FakeVehicleFeed>();
+    // One telemetry source, and it is the real one. A hardcoded feed flew beside this adapter for
+    // exactly as long as it took to compare them -- the real path was built next to a working
+    // display, never into a void -- and was then deleted rather than left behind a configuration
+    // flag. A second feed that can be switched on is a second answer to "what is the console
+    // showing?", and the cost lands on whoever debugs a blank map without knowing it exists.
+    //
+    // Registered as IVehicleAdapter rather than by its concrete type, and resolved as a collection
+    // below, because the interface was derived from two implementations rather than written for
+    // one. A ground adapter joins it here without this line changing.
     builder.Services.AddSingleton<IVehicleAdapter, MavlinkUdpAdapter>();
 
     builder.Services.AddHostedService<VehicleAdapterService>();
