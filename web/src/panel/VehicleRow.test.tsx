@@ -132,6 +132,20 @@ describe('a row with no heading reported', () => {
     expect(screen.getByText('———')).toBeDefined()
     expect(screen.getByText('21.4')).toBeDefined()
   })
+
+  //  The other shape an absence arrives in, and the one the type system cannot rule out: a frame is
+  //  `JSON.parse` output cast to the interface and never validated, so a sender that omits the key
+  //  instead of nulling it satisfies `VehicleFrame` and reaches the row as `undefined`. Against a
+  //  `=== null` test that rounds to `NaN°` -- a garbage reading beside a marker that has correctly
+  //  declined to point, which is the two surfaces disagreeing about the same vehicle.
+  it('does the same when the key is absent rather than null', () => {
+    const frame = frameIn('Live')
+    delete (frame as Partial<VehicleFrame>).headingDegrees
+
+    renderRow(frame)
+
+    expect(screen.getByText('———')).toBeDefined()
+  })
 })
 
 describe('every row, while the station is unreachable', () => {

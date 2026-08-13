@@ -143,13 +143,18 @@ function featuresFor(
       //  feature entirely. Assigning null -- or undefined -- would put a property there for `has`
       //  to find, and the marker would take its nose back and point at the coalesce fallback of
       //  north.
+      //
+      //  Which is why the test is `typeof`, not `=== null`: spreading an object whose one key holds
+      //  `undefined` still puts that key on the result, and `undefined` is exactly what an omitted
+      //  heading is by the time it reaches here, a frame being unvalidated `JSON.parse` output.
+      //  Against `=== null` the comment above would be false for the commonest form of absence.
       properties: {
         vehicleId: frame.vehicleId,
         iconId: vehicleIconId(appearance),
         sortKey: appearance.sortKey,
-        ...(appearance.headingDegrees === null
-          ? {}
-          : { headingDegrees: appearance.headingDegrees }),
+        ...(typeof appearance.headingDegrees === 'number'
+          ? { headingDegrees: appearance.headingDegrees }
+          : {}),
       },
     })
   }
