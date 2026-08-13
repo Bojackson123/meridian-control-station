@@ -15,8 +15,8 @@ namespace Mcs.Adapters.Mavlink;
 /// map. That is why the address is parsed during validation rather than at bind time, and why the
 /// message names the setting.
 /// <para>
-/// Mutable properties because that is what the configuration binder needs, matching
-/// <c>FakeFeedOptions</c>. There is deliberately no <c>Enabled</c> flag: an adapter that is
+/// Mutable properties because that is what the configuration binder needs. There is deliberately
+/// no <c>Enabled</c> flag: an adapter that is
 /// configured but silently not running is the same failure this section is arranged to prevent, and
 /// which adapters exist is a question for the host's registrations, where it can be read.
 /// </para>

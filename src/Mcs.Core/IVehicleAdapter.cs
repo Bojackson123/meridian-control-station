@@ -13,6 +13,14 @@ namespace Mcs.Core;
 /// implementation has to lie about.
 ///
 /// <para>
+/// The synthetic feed has since been deleted -- the station flies a real aircraft now, and a
+/// second source of truth about what the console shows was not worth keeping. The shape it argued
+/// for stays: a contract derived from two unlike sources is why a ground adapter can arrive
+/// without this file changing, and re-deriving it from the one implementation left would narrow it
+/// to whatever MAVLink happens to need.
+/// </para>
+///
+/// <para>
 /// <b>Telemetry only. There is no command member here</b>, and its absence is a decision rather than
 /// an omission: the command lifecycle has no implementation and no caller yet, so any signature
 /// written now would be a guess at a design that is close enough to arrive on its own. When it does,
@@ -23,9 +31,10 @@ namespace Mcs.Core;
 ///
 /// <para>
 /// <b>The adapter owns its loop.</b> <see cref="RunAsync"/> is entered once and does not return until
-/// cancellation, rather than a <c>Tick()</c> the host calls on a schedule. Both real implementations
-/// want it this way -- one blocks on a socket read, the other on a timer, and neither has a natural
-/// unit of work small enough for a caller to drive. The argument for a driven shape is testability,
+/// cancellation, rather than a <c>Tick()</c> the host calls on a schedule. Both implementations it
+/// was derived from wanted it this way -- one blocked on a socket read, the other on a timer, and
+/// neither had a natural unit of work small enough for a caller to drive. The argument for a driven
+/// shape is testability,
 /// and it is answered by what the tests actually drive: the parser and the assembler take bytes and
 /// frames directly, which is where the logic worth testing lives.
 /// </para>
@@ -40,8 +49,9 @@ namespace Mcs.Core;
 ///
 /// <para>
 /// <b>No statistics member either.</b> Each adapter counts what its own link can go wrong in --
-/// resynced bytes and unknown message ids mean nothing to a synthetic feed -- so a common counter
-/// shape would be invented here rather than observed in either implementation. Adapters expose their
+/// resynced bytes and unknown message ids meant nothing to the timer-driven feed, and mean nothing
+/// to a file replayed from disk -- so a common counter shape would be invented here rather than
+/// observed in any implementation. Adapters expose their
 /// own concrete statistics; this interface is how they are started, not how they are read.
 /// </para>
 /// </remarks>

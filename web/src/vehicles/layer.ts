@@ -105,8 +105,10 @@ export function attachVehicleLayer(map: MapLibreMap): (fleet: Fleet) => void {
  * Positions are used exactly as reported, with no interpolation between frames and no animation
  * toward the next one. Smoothing the motion would put the vehicle at a position it never reported,
  * which is HAZ-01 -- a picture the operator believes is current, and is not -- implemented on
- * purpose and called a feature. At the feed's rate the marker steps once a second, visibly, and that
- * is the correct behaviour.
+ * purpose and called a feature. At the rate the aircraft reports its position the marker steps
+ * four times a second, visibly, and that is the correct behaviour. A slower link steps more
+ * coarsely and should: the stepping is the link's rate made visible, not a rendering artefact to
+ * be smoothed away.
  */
 function featuresFor(fleet: Fleet): FeatureCollection<Point, VehicleFeatureProperties> {
   const features: Feature<Point, VehicleFeatureProperties>[] = []

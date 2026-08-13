@@ -33,8 +33,9 @@ public class StationSmokeTests
     private static readonly TimeSpan RequestBudget = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// Bound on a stream read. Generous against the feed's 1 Hz -- fifteen frames' worth for the
-    /// two these tests want -- because the cost of a tight bound is a red build on a loaded runner
+    /// Bound on a stream read. Generous against the aircraft's 4 Hz position reports -- sixty
+    /// frames' worth for the two these tests want, and it was already generous at the 1 Hz the
+    /// station used to fly -- because the cost of a tight bound is a red build on a loaded runner
     /// with no defect behind it, and the cost of no bound at all is a job that hangs until the
     /// runner's own limit kills it hours later with nothing to say.
     /// </summary>
@@ -137,8 +138,8 @@ public class StationSmokeTests
     /// G1 -- the vehicle is flying, not merely present.
     /// </summary>
     /// <remarks>
-    /// The one assertion here that separates "the endpoint responds" from "the skeleton walks". A
-    /// frozen feed satisfies every other test in this file.
+    /// The one assertion here that separates "the endpoint responds" from "the skeleton walks". An
+    /// aircraft frozen at a position it once reported satisfies every other test in this file.
     /// </remarks>
     [SmokeFact]
     public async Task Stream_ShowsTheVehicleActuallyMoving()
@@ -156,15 +157,16 @@ public class StationSmokeTests
         (VehicleFrame first, VehicleFrame second) = await ReadConsecutiveFramesAsync(
             await response.Content.ReadAsStreamAsync(deadline.Token), deadline.Token);
 
-        //  Exact inequality, no epsilon. At 1 Hz on a 400 m circuit flown in 120 s the vehicle
-        //  covers about 21 m between frames, which is ~1.9e-4 degrees of latitude -- four orders of
-        //  magnitude above anything double arithmetic could confuse it with. An epsilon added here
+        //  Exact inequality, no epsilon. At 22 m/s and 4 Hz the aircraft covers about 5.5 m between
+        //  position reports, which is ~5e-5 degrees of latitude -- and the wire carries them as
+        //  int32 degE7, so the smallest step either coordinate can take is 1e-7. Two orders of
+        //  magnitude of headroom on a quantised value that cannot drift. An epsilon added here
         //  later "to be safe" would be the width of the gap a stopped vehicle slips through.
         Assert.True(
             first.LatitudeDegrees != second.LatitudeDegrees
                 || first.LongitudeDegrees != second.LongitudeDegrees,
             $"{first.VehicleId} reported the same position twice running: "
-                + $"{first.LatitudeDegrees}, {first.LongitudeDegrees}. The feed is not flying it.");
+                + $"{first.LatitudeDegrees}, {first.LongitudeDegrees}. It is not being flown.");
     }
 
     /// <summary>G1 -- the console itself is served.</summary>
@@ -353,8 +355,8 @@ public class StationSmokeTests
     /// </summary>
     /// <remarks>
     /// Two events off the stream are not necessarily two frames from the same vehicle -- they are
-    /// today, because the feed flies one, but the fleet grows and a test that quietly compared two
-    /// different vehicles' positions would go on passing while saying nothing.
+    /// today, because the simulator flies one aircraft, but the fleet grows and a test that quietly
+    /// compared two different vehicles' positions would go on passing while saying nothing.
     /// </remarks>
     private static async Task<(VehicleFrame First, VehicleFrame Second)> ReadConsecutiveFramesAsync(
         Stream body, CancellationToken cancellationToken)
@@ -414,8 +416,8 @@ public class StationSmokeTests
                 }
 
                 //  Heartbeats are named events carrying a null payload, not comment lines. They
-                //  only fire after fifteen seconds of silence, so at 1 Hz this skip never triggers
-                //  -- it is here so that a feed which does go quiet fails the count assertion with
+                //  only fire after fifteen seconds of silence, so at 4 Hz this skip never triggers
+                //  -- it is here so that a link which does go quiet fails the count assertion with
                 //  the frames it got, rather than an unhandled null.
                 if (events.Current.EventType != Routes.TelemetryEventType
                     || events.Current.Data is not VehicleFrame frame)

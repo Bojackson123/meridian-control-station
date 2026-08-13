@@ -14,13 +14,15 @@ Designing half a language now and the other half later is how you get two langua
 
 **The working drawing is `console-design/mockup.html`**, committed beside this file. It is a
 single static page with no build step — open it with `file://` — and it runs the layout below
-at twelve, on the circuit the station's own feed flies, with the ages ticking. Everything in
+at twelve, on the circuit the station's feed flew when this was drawn, with the ages ticking. Everything in
 §1 and §2 was checked against it rather than asserted, and the two findings at the end of this
 note came out of it. Where the two disagree, the note is wrong and gets fixed.
 
 Two id shapes appear here and they are not the same thing: **`MCS-001`** and friends are
-requirements; **`UAV-01`** and friends are vehicles, named the way the feed names them. The
-station is MCS; the aircraft are not.
+requirements; **`UAV-01`** and friends are vehicles, named the way the feed that flew when this
+was written named them. The station now names a MAVLink vehicle after its system id — system 1
+is `MAV-001` — and nothing in the state language depends on either shape. The station is MCS;
+the aircraft are not.
 
 **Date:** 2026-08-11
 

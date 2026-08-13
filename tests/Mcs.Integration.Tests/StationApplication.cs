@@ -17,15 +17,9 @@ namespace Mcs.Integration.Tests;
 internal sealed class StationApplication : WebApplicationFactory<Program>
 {
     private readonly string _connectionString;
-    private readonly IReadOnlyDictionary<string, string?> _settings;
     private readonly Action<IServiceCollection>? _configureServices;
 
     /// <param name="connectionString">The database this instance migrates and reads.</param>
-    /// <param name="settings">
-    /// Configuration entries layered over the defaults below. The telemetry tests raise the feed
-    /// rate this way, because the default here is chosen to keep the feed out of the log rather
-    /// than to make frames arrive.
-    /// </param>
     /// <param name="configureServices">
     /// Applied after the application has registered its own services, so a registration here wins.
     /// For observing the station, not for rebuilding it -- a test that replaces a component is
@@ -33,11 +27,9 @@ internal sealed class StationApplication : WebApplicationFactory<Program>
     /// </param>
     public StationApplication(
         string connectionString,
-        IReadOnlyDictionary<string, string?>? settings = null,
         Action<IServiceCollection>? configureServices = null)
     {
         _connectionString = connectionString;
-        _settings = settings ?? new Dictionary<string, string?>(StringComparer.Ordinal);
         _configureServices = configureServices;
     }
 
@@ -52,22 +44,12 @@ internal sealed class StationApplication : WebApplicationFactory<Program>
         {
             ["ConnectionStrings:Mcs"] = _connectionString,
 
-            //  One vehicle at the slowest rate the feed allows. The fake feed is not what most of
-            //  these tests are about, and it writes a log line per frame per vehicle.
-            ["FakeFeed:VehicleCount"] = "1",
-            ["FakeFeed:RateHz"] = "0.1",
-
             //  An ephemeral port, because the station really does bind one. On the configured
             //  14550 these tests would fail against a developer's own station running beside them,
             //  and two of them in one process would fail against each other -- both as a bind error
             //  in a suite that is about the database.
             ["Adapters:Mavlink:Port"] = "0",
         };
-
-        foreach (KeyValuePair<string, string?> setting in _settings)
-        {
-            configuration[setting.Key] = setting.Value;
-        }
 
         builder.ConfigureAppConfiguration(
             builderConfiguration => builderConfiguration.AddInMemoryCollection(configuration));

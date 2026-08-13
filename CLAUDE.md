@@ -83,7 +83,7 @@ Compose). CI reads the version files rather than restating any of them.
 
 ```
 src/Mcs.Core        domain: telemetry model, ingest boundary, bounded store, IVehicleAdapter
-src/Mcs.Api         ASP.NET Core host; fake feed, persistence, observability live here
+src/Mcs.Api         ASP.NET Core host; persistence, observability and the HTTP surface live here
 src/Mcs.Adapters    vehicle adapters; Mavlink/ holds the v2 framing codec and the UDP link
 src/Mcs.Simulator   the air simulator: kinematics, waypoint follower, MAVLink out over UDP
 web/                React + TypeScript + Vite + MapLibre console
@@ -121,7 +121,10 @@ works through all three placements. Bounds are system-wide commitments on `ITele
 `IVehicleAdapter` is `Name` plus `RunAsync(CancellationToken)` and nothing else. It lives in
 `Mcs.Core` because it is the vehicle-agnostic contract, and it was written only once there were two
 implementations to derive it from — `FakeVehicleFeed` and `MavlinkUdpAdapter` — so it describes what
-they share rather than what either one does. **There is no command member** (that direction is M2's,
+they share rather than what either one does. The fake feed has since been deleted and
+`MavlinkUdpAdapter` is the only implementation left; **do not re-derive the interface from it**, as
+that narrows a deliberately vehicle-agnostic contract to whatever one link happens to need.
+**There is no command member** (that direction is M2's,
 and a signature with no caller is a guess) and **no statistics member**: each adapter counts what its
 own link can go wrong in, so a common counter shape would be invented rather than observed.
 
