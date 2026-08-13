@@ -547,6 +547,62 @@ public class MavlinkTelemetryAssemblerTests
     //  Complete as its only caller. The property is held by the type system, and a test asserting
     //  it would only be asserting that the code still compiles.
 
+    /// <summary>
+    /// The vehicle's own clock reaches the station and changes nothing about how old its data is
+    /// (MCS-002).
+    /// </summary>
+    /// <remarks>
+    /// This is the one place a vehicle clock exists to be tested with. <c>GLOBAL_POSITION_INT</c>
+    /// carries <c>time_boot_ms</c>, the decoder reads it, and nothing downstream may use it: a
+    /// vehicle whose clock is wrong -- or whose firmware simply counts from a different zero -- must
+    /// not be able to age or freshen its own track. Two positions differing in nothing else are
+    /// therefore exactly as current as each other, and the station's own silence is what moves them.
+    /// <para>
+    /// Both extremes at once, because they fail in opposite directions: a zero would read as
+    /// "booted just now" and <see cref="uint.MaxValue"/> as roughly seven weeks of uptime. Under any
+    /// scheme that trusted the field, one of those two renders live and the other lost.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void VehicleBootTime_DoesNotReachStaleness()
+    {
+        FakeClock clock = new();
+        TelemetryIngest ingest = new(clock);
+
+        //  Both received at one instant, which is the only thing that should decide their age.
+        TelemetryFrame justBooted = Receive(ingest, timeBootMilliseconds: 0);
+        TelemetryFrame longUp = Receive(ingest, timeBootMilliseconds: uint.MaxValue);
+
+        clock.Advance(TelemetryCurrency.StaleAfter);
+
+        TelemetryCurrency first = TelemetryCurrency.Of(justBooted, clock);
+        TelemetryCurrency second = TelemetryCurrency.Of(longUp, clock);
+
+        Assert.Equal(first, second);
+        Assert.Equal(VehicleState.Stale, first.State);
+        Assert.Equal(TelemetryCurrency.StaleAfter, first.Age);
+    }
+
+    /// <summary>
+    /// Decodes a position claiming <paramref name="timeBootMilliseconds"/> on the vehicle's clock,
+    /// and stamps it through the real ingest boundary.
+    /// </summary>
+    private static TelemetryFrame Receive(TelemetryIngest ingest, uint timeBootMilliseconds)
+    {
+        byte[] payload = MavlinkVectors.Named("global_position_int").FullPayload;
+
+        //  time_boot_ms is the first field of the message, so offset zero.
+        BinaryPrimitives.WriteUInt32LittleEndian(payload, timeBootMilliseconds);
+
+        TelemetryReceipt receipt = ingest.BeginReceive();
+
+        Assert.True(new MavlinkTelemetryDecoder().TryDecode(
+            MavlinkFrames.FromPayload(MavlinkMessageId.GlobalPositionInt, payload),
+            out VehicleTelemetry? telemetry));
+
+        return receipt.Complete(telemetry);
+    }
+
     // --- Helpers --------------------------------------------------------------------------------------
 
     /// <summary>Brings a decoder to the point where the next position emits.</summary>

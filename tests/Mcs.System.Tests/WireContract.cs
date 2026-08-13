@@ -26,10 +26,16 @@ internal static class Routes
     public const string BasemapStyle = "/basemap/style.json";
 
     /// <summary>
-    /// The SSE event name carrying a frame. The stream also emits <c>heartbeat</c> events with a
-    /// <c>null</c> payload, and no <c>id:</c> line or <c>:</c>-comment lines at all.
+    /// The SSE event name carrying the vehicle that just reported. There are no <c>id:</c> lines and
+    /// no <c>:</c>-comment lines on this stream at all.
     /// </summary>
     public const string TelemetryEventType = "telemetry";
+
+    /// <summary>
+    /// The SSE event name carrying the whole fleet with its ages re-evaluated, sent on a schedule
+    /// whether or not anything reported.
+    /// </summary>
+    public const string FleetEventType = "fleet";
 }
 
 /// <summary>
@@ -75,6 +81,13 @@ internal sealed record VehicleFrame(
     double? HeadingDegrees,
     double? BatteryPercent,
     string LinkStatus,
+
+    //  A string for the same reason LinkStatus is one: the host writes enum member names, and this
+    //  is the field a console decides how much to trust a marker by. A renumbering or a rename has
+    //  to fail an assertion here rather than be quietly re-parsed into whatever the compiled enum
+    //  now says "2" means.
+    string State,
+    long AgeMilliseconds,
     DateTimeOffset ReceivedAtUtc);
 
 /// <summary>An altitude and the datum it was measured against, nested rather than flattened.</summary>

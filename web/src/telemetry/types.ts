@@ -11,11 +11,23 @@
 /**
  * The health of the radio link, as the vehicle's link layer reports it.
  *
- * This is not staleness. Staleness is the console's own judgement, derived from `receivedAtUtc` on
- * every render; a vehicle reports `Healthy` in the last frame before the link dies, and the console
- * must still call it stale seconds later. Never derive one from the other.
+ * This is not staleness. It is the vehicle's claim about its own radio, made in a frame that by
+ * definition arrived; `VehicleState` is the station's observation of silence. A vehicle reports
+ * `Healthy` in the last frame before the link dies, and the station still calls it stale seconds
+ * later. Never derive one from the other.
  */
 export type LinkStatus = 'Healthy' | 'Degraded' | 'Lost'
+
+/**
+ * How current the station considers a vehicle's last report to be (MCS-002).
+ *
+ * **Computed by the station and sent, never worked out here.** The threshold arithmetic needs a
+ * clock, and the browser's is not one this console may trust: a machine thirty seconds out would
+ * render a live aircraft as lost or, far worse, a lost one as live -- the failure this whole state
+ * language exists to prevent, arriving through a component nobody would think to suspect. The wire
+ * carries the answer; the console renders it.
+ */
+export type VehicleState = 'Live' | 'Stale' | 'Lost'
 
 /** The datum an altitude was measured against. Converting between them needs terrain the station does not hold. */
 export type AltitudeReference = 'Msl' | 'Agl' | 'Hae'
@@ -32,11 +44,13 @@ export interface Altitude {
 }
 
 /**
- * One vehicle's latest frame: what the vehicle claimed, plus the one thing it did not -- the time
- * the station observed it.
+ * One vehicle's latest frame: what the vehicle claimed, plus the things it did not -- when the
+ * station observed it, and how current the station considers it now.
  *
- * `receivedAtUtc` is the station's clock reading at arrival, not the vehicle's. Everything the
- * console will ever say about how current a picture is has to come from this field (MCS-005).
+ * `receivedAtUtc` is the station's clock reading at arrival, not the vehicle's (MCS-005). It orders
+ * frames; it is not what the display's age is computed from, because that subtraction would need a
+ * local clock. `state` and `ageMilliseconds` are the station's own answer, evaluated against the
+ * station clock at the moment the event was written.
  */
 export interface VehicleFrame {
   vehicleId: string
@@ -54,6 +68,14 @@ export interface VehicleFrame {
   batteryPercent: number | null
 
   linkStatus: LinkStatus
+
+  state: VehicleState
+
+  //  How long before this event was written the frame had arrived, in whole milliseconds by the
+  //  station clock. Measured monotonically over there, so it does not jump when either machine's
+  //  wall clock is corrected.
+  ageMilliseconds: number
+
   receivedAtUtc: string
 }
 

@@ -83,7 +83,8 @@ public sealed class TelemetryReceipt
     private readonly TimeProvider _timeProvider;
 
     //  The monotonic partner to ReceivedAtUtc. Not exposed: a raw tick count means nothing outside
-    //  the provider that issued it.
+    //  the provider that issued it. It does travel onto the frame, internally, because measuring an
+    //  age from a calendar reading is what an NTP step corrupts -- see TelemetryFrame.
     private readonly long _receivedTimestamp;
 
     //  The decode cost in ticks, or NotYetCompleted -- and the single-use flag as well, because those
@@ -161,6 +162,9 @@ public sealed class TelemetryReceipt
                 + "(MCS-005); call BeginReceive again for the next message.");
         }
 
-        return TelemetryFrame.Create(telemetry, ReceivedAtUtc);
+        //  Both of the readings taken at BeginReceive, and neither of them taken here: the frame's
+        //  age is measured from the monotonic one, so a decode that took 40 ms is 40 ms of age
+        //  rather than none.
+        return TelemetryFrame.Create(telemetry, ReceivedAtUtc, _receivedTimestamp);
     }
 }
