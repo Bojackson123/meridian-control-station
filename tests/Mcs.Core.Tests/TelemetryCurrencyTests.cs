@@ -44,6 +44,7 @@ public class TelemetryCurrencyTests
     // --- The thresholds themselves --------------------------------------------------------------
 
     [Fact]
+    [Verifies("MCS-002")]
     public void StaleAfter_IsThreeSeconds()
     {
         // MCS-002, verbatim: three seconds, being three times the slowest configured telemetry
@@ -53,6 +54,7 @@ public class TelemetryCurrencyTests
     }
 
     [Fact]
+    [Verifies("MCS-002")]
     public void LostAfter_IsFiveTimesStale_AndInsideTheConsolesDeadStreamTimeout()
     {
         // Sourced by construction: a multiple of the same slowest telemetry period stale is built
@@ -81,6 +83,7 @@ public class TelemetryCurrencyTests
     [InlineData(15_000, VehicleState.Lost)]
     [InlineData(15_100, VehicleState.Lost)]
     [InlineData(3_600_000, VehicleState.Lost)]
+    [Verifies("MCS-002")]
     public void FromAge_PutsTheBoundaryWhereTheRequirementDoes(int ageMilliseconds, VehicleState expected)
     {
         // Inclusive at the bottom of each band: MCS-002 says stale *when* no frame has been
@@ -94,6 +97,7 @@ public class TelemetryCurrencyTests
     }
 
     [Fact]
+    [Verifies("MCS-012")]
     public void FromAge_NegativeAge_ThrowsRatherThanClamping()
     {
         // Reject, never clamp. The clamp a reasonable person would write is to zero, and a zero age
@@ -176,6 +180,7 @@ public class TelemetryCurrencyTests
     [Theory]
     [InlineData(-3600)]
     [InlineData(3600)]
+    [Verifies("MCS-002")]
     public void Of_AWallClockCorrection_DoesNotMoveTheAge(int stepSeconds)
     {
         // The station's own clock stepping, which is what NTP does to a container that has been up
@@ -196,6 +201,7 @@ public class TelemetryCurrencyTests
     }
 
     [Fact]
+    [Verifies("MCS-002")]
     public void Of_IgnoresEverythingTheVehicleClaimed()
     {
         // The untrusted-clock case, and the reason VehicleTelemetry and TelemetryFrame are two
@@ -224,6 +230,7 @@ public class TelemetryCurrencyTests
     }
 
     [Fact]
+    [Verifies("MCS-012")]
     public void Of_AFrameFromAnotherProvider_ThrowsRatherThanReportingItLive()
     {
         // Two clocks means two tick origins, and the difference between them is not an age. Left

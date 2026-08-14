@@ -17,6 +17,14 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    Linked, not copied. tools/trace reads this attribute out of the built assembly by name, so
+    a per-suite copy that drifted would tag nothing and report nothing about it.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Verifies.cs" Link="Verifies.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Mcs.Api\Mcs.Api.csproj" />
     <ProjectReference Include="..\..\src\Mcs.Adapters\Mcs.Adapters.csproj" />

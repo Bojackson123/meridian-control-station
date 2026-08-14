@@ -78,7 +78,7 @@ describe('appearanceOf', () => {
     expect(live.chip).toBeNull()
   })
 
-  it('draws a stale vehicle hollow, still pointed, and carrying its age', () => {
+  it('draws a stale vehicle hollow, still pointed, and carrying its age [MCS-003]', () => {
     const stale = appearanceOf(frameIn('Stale', { ageMilliseconds: 7_400 }), 'connected')
 
     expect(stale.state).toBe('stale')
@@ -93,7 +93,7 @@ describe('appearanceOf', () => {
     expect(stale.chip).toBe('7s')
   })
 
-  it('draws a lost vehicle as a dashed ring with no heading at all', () => {
+  it('draws a lost vehicle as a dashed ring with no heading at all [MCS-003]', () => {
     const lost = appearanceOf(
       frameIn('Lost', { ageMilliseconds: 252_000, headingDegrees: 87.5 }),
       'connected',
@@ -123,7 +123,7 @@ describe('appearanceOf', () => {
   //  The note's rule, as an assertion rather than as an intention: around one man in twelve has
   //  some colour vision deficiency, and a screenshot pasted into a report loses hue entirely for
   //  everyone. Every pair below must differ somewhere other than in `colour`.
-  it('separates every pair of states in more than one channel, and never in colour alone', () => {
+  it('separates every pair of states in more than one channel, and never in colour alone [MCS-003]', () => {
     const states = [
       appearanceOf(frameIn('Live'), 'connected'),
       appearanceOf(frameIn('Stale', { ageMilliseconds: 7_000 }), 'connected'),
@@ -165,7 +165,7 @@ describe('appearanceOf', () => {
   })
 })
 
-describe('appearanceOf, with the station unreachable', () => {
+describe('appearanceOf, with the station unreachable [MCS-013]', () => {
   //  The failure this case exists for: the last thing the station said was that everything was
   //  live, and it has not been able to say anything since. Rendering the fleet as live on the
   //  strength of that snapshot is HAZ-01 exactly.

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Mcs.Trace</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!--
+      dotnet test walks the solution and skips anything that is not a test project, but the
+      SDK prints an advisory line per project that has never said which it is. Saying so.
+    -->
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <!--
+    No PackageReference, and that is a requirement rather than an accident. System.Reflection.
+    Metadata, System.Xml.Linq and System.Text.RegularExpressions are all in Microsoft.NETCore.App
+    on net10.0, so this tool adds nothing to the restore graph. Directory.Build.props audits every
+    transitive package at severity low with warnings as errors: a dependency here would be a
+    future build break in the one step whose job is to tell you the requirements table is stale,
+    and a red gate nobody believes gets deleted.
+
+    MetadataLoadContext would have been the comfortable way to read the attributes and is *not*
+    in the shared framework: it ships as a package, and it also needs an assembly resolver over
+    the runtime directory to load a test assembly's dependencies. MetadataReader needs neither,
+    because nothing here is executed; the attribute is read as bytes.
+  -->
+
+</Project>

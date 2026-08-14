@@ -251,6 +251,7 @@ public class InMemoryTelemetryStoreTests
     }
 
     [Fact]
+    [Verifies("MCS-010")]
     public void Write_ThrowsWhenAFurtherVehicleWouldExceedTheCap()
     {
         FakeClock clock = new();
@@ -263,6 +264,7 @@ public class InMemoryTelemetryStoreTests
     }
 
     [Fact]
+    [Verifies("MCS-010")]
     public void CapacityException_CarriesWhatTheFeedsLogLineNeeds()
     {
         FakeClock clock = new();
@@ -515,6 +517,7 @@ public class InMemoryTelemetryStoreTests
     }
 
     [Fact]
+    [Verifies("MCS-010")]
     public void Forget_RacedWithWritersAdmittingNewVehicles_NeverExceedsTheCap()
     {
         // Removal is the second mutation of the vehicle table, so it has to be ordered against
@@ -720,6 +723,7 @@ public class InMemoryTelemetryStoreTests
     }
 
     [Fact]
+    [Verifies("MCS-010")]
     public async Task Subscriber_ThatFallsBehind_LosesTheOldestFramesAndKeepsTheNewest()
     {
         // Drop-oldest, and the direction is the whole point. This is a state stream, not an event

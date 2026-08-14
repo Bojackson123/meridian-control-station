@@ -64,6 +64,7 @@ public class TelemetryIngestTests
     // --- BeginReceive: the clock is read at arrival --------------------------------------------
 
     [Fact]
+    [Verifies("MCS-005")]
     public void BeginReceive_TakesTheArrivalTimeFromTheInjectedClock()
     {
         // The requirement stated directly: the receipt timestamp comes from the injected
@@ -140,6 +141,7 @@ public class TelemetryIngestTests
     // --- Complete: the frame carries the arrival time, not the completion time -----------------
 
     [Fact]
+    [Verifies("MCS-005")]
     public void Complete_StampsTheFrameWithArrival_NotWithTheTimeTheDecodeFinished()
     {
         // The entire reason receipt is split into two steps. Stamping at frame construction would
@@ -195,6 +197,7 @@ public class TelemetryIngestTests
     // --- Complete: single use ------------------------------------------------------------------
 
     [Fact]
+    [Verifies("MCS-005")]
     public void Complete_CalledTwice_ThrowsInvalidOperationExceptionCitingMcs005()
     {
         // A receipt that could be completed twice would let one arrival mint two frames bearing

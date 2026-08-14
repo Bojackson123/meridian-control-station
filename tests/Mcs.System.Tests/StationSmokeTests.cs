@@ -78,6 +78,7 @@ public class StationSmokeTests
 
     /// <summary>G3 -- Postgres is in the stack and the station migrated it, not just reached it.</summary>
     [SmokeFact]
+    [Verifies("MCS-011")]
     public async Task Readiness_ReportsTheSchemaTheStationMigratedTo()
     {
         using CancellationTokenSource deadline = new(RequestBudget);
@@ -266,6 +267,7 @@ public class StationSmokeTests
     /// serves, so it fails a build rather than waiting to be noticed in DevTools.
     /// </remarks>
     [SmokeFact]
+    [Verifies("MCS-009")]
     public async Task Basemap_IsServedFromTheWebOrigin()
     {
         using CancellationTokenSource deadline = new(RequestBudget);

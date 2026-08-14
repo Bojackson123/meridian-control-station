@@ -71,6 +71,7 @@ public class SchemaMigrationTests
     }
 
     [Fact]
+    [Verifies("MCS-011")]
     public async Task Apply_WhenAnAppliedMigrationHasBeenEditedSinceItShipped_Fails()
     {
         // Simulated from the database side because the file side is immutable by policy: a
@@ -92,6 +93,7 @@ public class SchemaMigrationTests
     }
 
     [Fact]
+    [Verifies("MCS-011")]
     public async Task Apply_ByTwoInstancesStartingTogether_AppliesEachMigrationOnce()
     {
         // The advisory lock, stated as the failure it prevents. Without it both replicas read an
@@ -113,6 +115,7 @@ public class SchemaMigrationTests
     }
 
     [Fact]
+    [Verifies("MCS-011")]
     public async Task Apply_ToADatabaseAheadOfThisBuild_ContinuesRatherThanRefusingToStart()
     {
         // Deploying an older binary over a newer schema has to stay possible: the tables a later

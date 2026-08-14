@@ -13,4 +13,7 @@
     <Project Path="tests/Mcs.Simulator.Tests/Mcs.Simulator.Tests.csproj" />
     <Project Path="tests/Mcs.System.Tests/Mcs.System.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/trace/Mcs.Trace.csproj" />
+  </Folder>
 </Solution>
