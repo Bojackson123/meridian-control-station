@@ -131,7 +131,7 @@ pointed, and carrying its age*, *draws a lost vehicle as a dashed ring with no h
 *separates every pair of states in more than one channel, and never in colour alone*; and
 `web/src/panel/VehicleRow.test.tsx` for the same states in the panel. Inspection: the state
 language, its contrast ratios and what the built console survived —
-`evidence: notes/console-design.md`.
+`evidence: notes/console-design-note.md`.
 
 ---
 
