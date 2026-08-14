@@ -290,8 +290,9 @@ display bug can be reproduced instead of described.
 
 ## Running it without Docker
 
-Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download) (`global.json` pins
-10.0.302, rolling forward to the latest patch) and a Postgres for the API to migrate.
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download) (`global.json` asks for
+10.0.302 and rolls forward to the newest 10.x installed, so a later SDK is fine and is what
+CI actually uses) and a Postgres for the API to migrate.
 
 ```bash
 docker run --rm -d --name mcs-pg -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=mcs -p 5432:5432 postgres:18-alpine

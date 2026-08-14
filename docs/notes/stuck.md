@@ -422,3 +422,38 @@ down before it happened and read only afterwards.
 **Carry forward.** A green local build is evidence about the last restore, not about today's
 advisories — the audit database moves and the cache does not. `--force-evaluate` before a tag is
 the cheap habit; the alternative is finding out on the run that was supposed to be the gate.
+
+---
+
+## 2026-08-14 — a comment that turned every project into no project at all
+
+**Symptom.** Straight after the entry above. Pushed the Testcontainers bump; CI failed in
+`Restore` again, but differently: every project in the solution "Failed to restore" in under a
+millisecond and the only line was `MSB4181: The "RestoreTask" task returned false but did not log
+an error`. No package named, no advisory, nothing. Three attempts, identical. Local build still
+green.
+
+**What I tried.**
+1. Suspected the runner. It had installed SDK 10.0.400 rather than the 10.0.302 in `global.json`,
+   which looked like a lead until the *first* run turned out to have used 10.0.400 too and
+   restored fine. Same SDK, so not the SDK.
+2. Which left my own commit as the only difference. Reproduced it locally by clearing the HTTP
+   cache and the relevant packages out of the global folder, and on 10.0.302 the same restore
+   printed a real message: `Invalid framework identifier ''`. Restoring a single project narrowed
+   it further to `NETSDK1013: The TargetFramework value '' was not recognized` — and it said that
+   about `Mcs.Core`, which has no packages at all and nothing to do with the bump.
+3. Every project losing `TargetFramework` at once points at exactly one file.
+   `Directory.Build.props`, where I had just added a comment naming the restore flag that
+   reproduces a cold audit. The flag has two hyphens in it. **XML comments cannot contain `--`.**
+
+**What it was.** My comment. MSBuild failed the props file, so every project silently lost
+`TargetFramework`, `TreatWarningsAsErrors` and all four audit properties — including the audit
+whose behaviour the comment was documenting. The build "passed" locally because a project with no
+target framework still has a cached obj/ from before.
+
+**Carry forward.** Two of them. The narrow one: XML comments cannot carry a double hyphen, which
+makes `.csproj` and `.props` the two files in this repo where a command line cannot be quoted
+verbatim — name the flag in prose instead. The wider one: SDK 10.0.400 reported this as
+`RestoreTask returned false but did not log an error` and 10.0.302 named it in one line. When CI
+gives an error with no content, reproducing it on the SDK in `global.json` is worth more than
+reading the log again.

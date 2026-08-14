@@ -13,9 +13,11 @@
     "Locally" is worth one qualification, learned at the exit gate rather than assumed. The
     audit runs during restore, against an advisory database that moves on its own, so an
     incremental build over a cached restore re-audits nothing and stays green through an
-    advisory published since. `dotnet restore --force-evaluate` is what reproduces what a
-    clean checkout sees; a green local build is evidence about the last restore, not about
-    today's advisories.
+    advisory published since. Restoring with the force-evaluate flag is what reproduces what
+    a clean checkout sees; a green local build is evidence about the last restore, not about
+    today's advisories. The flag is named in prose rather than spelled, because spelling it
+    needs a double hyphen and XML comments cannot carry one: MSBuild then fails the whole
+    file, and every project silently loses its TargetFramework along with these settings.
   -->
   <PropertyGroup>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
