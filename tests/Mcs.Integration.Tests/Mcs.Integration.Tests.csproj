@@ -8,7 +8,15 @@
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="Testcontainers.PostgreSql" Version="4.13.0" />
+    <!--
+      4.14.0 rather than 4.13.0 for the transitive SSH.NET it carries: 4.13.0 pins 2025.1.0,
+      which GHSA-q939-rpr3-3284 covers, and NuGetAudit at `low` makes that a build error rather
+      than a warning. Bumped the package that owns the dependency rather than pinning SSH.NET
+      forward here: a transitive pin would leave this project asserting a version Testcontainers
+      itself had not been built against, and the advisory is only reachable through
+      ScpClient.Download, which nothing here calls.
+    -->
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.14.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>

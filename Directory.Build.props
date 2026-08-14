@@ -9,6 +9,13 @@
   <!--
     No warning survives to CI: build strictly here, and audit every package at every
     level, so a transitive advisory (NU1903) fails locally rather than at the exit gate.
+
+    "Locally" is worth one qualification, learned at the exit gate rather than assumed. The
+    audit runs during restore, against an advisory database that moves on its own, so an
+    incremental build over a cached restore re-audits nothing and stays green through an
+    advisory published since. `dotnet restore --force-evaluate` is what reproduces what a
+    clean checkout sees; a green local build is evidence about the last restore, not about
+    today's advisories.
   -->
   <PropertyGroup>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

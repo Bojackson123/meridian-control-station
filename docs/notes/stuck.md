@@ -384,3 +384,41 @@ had no turn dynamics in it. The note now says so.
 **Carry forward.** Worth remembering that this is the derived turn radius doing exactly its job:
 a configured turn rate would have let the aircraft fly a circuit it cannot actually fly and looked
 fine doing it.
+
+---
+
+## 2026-08-14 — a green local build and a red CI restore, on the same commit
+
+**Symptom.** Exit-gate run. `dotnet build -c Release` clean locally, 0 warnings, all six suites
+passing. Pushed, and CI failed in `Restore`, before it compiled anything: NU1903, `SSH.NET`
+2025.1.0, GHSA-q939-rpr3-3284, arriving transitively under `Testcontainers.PostgreSql` in the
+integration suite. Same commit, opposite results.
+
+**What I tried.**
+1. Assumed CI was right and looked for what differed. Not the SDK — `global-json-file` pins CI to
+   the same 10.0.302. Not the configuration; the audit properties apply to both.
+2. `dotnet restore --force-evaluate` locally. Reproduced immediately. That is the whole
+   difference: NuGetAudit runs *during restore*, and an incremental build over a cached
+   `project.assets.json` re-audits nothing. My restore predated the advisory; the runner's
+   checkout had no cache at all.
+3. Read the advisory before reaching for a version. Path traversal in
+   `ScpClient.Download(string, DirectoryInfo)` during recursive SCP — a malicious *server* writing
+   outside the target directory on the client. Testcontainers carries SSH.NET for remote-host and
+   port-forward support; this repo runs against a local Docker daemon and calls no SCP path.
+   Vulnerable code present, unreachable, same answer as 2026-08-07.
+4. Two ways to fix it, and the choice matters. Pinning `SSH.NET` forward in the test project
+   silences the audit but leaves this project asserting a version Testcontainers 4.13.0 was never
+   built against. `Testcontainers.PostgreSql` 4.14.0 already depends on the patched 2026.0.0, so
+   bumping the package that *owns* the dependency fixes it upstream of us. Took that, and re-ran
+   the integration suite rather than trusting a minor bump of the thing that starts the database.
+
+**What it was.** Not a dependency problem. The advisory was real and a day old; the interesting
+part is that the mechanism built to catch it locally could not, and the comment in
+`Directory.Build.props` said it would. That comment now carries the qualification. `ci.yml` had
+it right already — its no-NuGet-cache note says an advisory database that moves on its own means
+"a commit that was green last week can go red on a rebuild either way," which is this, written
+down before it happened and read only afterwards.
+
+**Carry forward.** A green local build is evidence about the last restore, not about today's
+advisories — the audit database moves and the cache does not. `--force-evaluate` before a tag is
+the cheap habit; the alternative is finding out on the run that was supposed to be the gate.
