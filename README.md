@@ -25,7 +25,10 @@ anything that doesn't. It does not connect to real aircraft.
 
 The same discipline in more detail: [`docs/requirements.md`](docs/requirements.md) states what the
 station is required to do and how each requirement is verified — including the two that are not,
-and the one that is only half-verified — and [`docs/what-can-go-wrong.md`](docs/what-can-go-wrong.md)
+and the one that is only half-verified. Those claims are not maintained by hand: a CI job reads the
+table, matches each row against the tests that reported passing and the evidence links that still
+resolve, and fails the build when they disagree.
+[`docs/what-can-go-wrong.md`](docs/what-can-go-wrong.md)
 is where those requirements came from. [`docs/interfaces.md`](docs/interfaces.md) is the contract
 itself: what a vehicle has to supply, in which units, and what the station serves back.
 

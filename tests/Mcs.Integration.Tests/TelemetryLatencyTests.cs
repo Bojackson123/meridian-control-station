@@ -43,6 +43,9 @@ namespace Mcs.Integration.Tests;
 /// </para>
 /// </remarks>
 [Collection(PostgresCollection.Name)]
+//  Tagged on the class rather than the method: measuring the budget is the whole of what this
+//  suite does, so a per-method tag would say the same thing once per measurement.
+[Verifies("MCS-001")]
 public class TelemetryLatencyTests
 {
     /// <summary>A full store, because the number is only interesting at the size it was designed for.</summary>

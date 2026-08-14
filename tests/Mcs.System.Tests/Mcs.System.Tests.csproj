@@ -27,6 +27,17 @@
     and System.Text.Json are all in Microsoft.NETCore.App on net10.0. Worth keeping that way,
     because Directory.Build.props audits every transitive package at severity low with warnings
     as errors: each dependency added here is a future build break waiting on an advisory.
+
+    The linked Verifies.cs below is the one piece of source that crosses into this project, and it
+    is not an exception to any of that: it is an attribute with no behaviour, referring to nothing
+    in the station, that tools/trace reads back out of the compiled assembly. A ProjectReference to
+    a shared test-support project would have been the ordinary way to share it and is still
+    refused, because the thing being protected is that nothing here can agree with the API about a
+    contract by construction rather than by observation.
   -->
+
+  <ItemGroup>
+    <Compile Include="..\Verifies.cs" Link="Verifies.cs" />
+  </ItemGroup>
 
 </Project>

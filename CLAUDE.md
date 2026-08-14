@@ -22,6 +22,8 @@ tools/fleet-at-twelve.ps1                 # or .sh — twelve of them, for looki
 dotnet test tests/Mcs.Core.Tests
 dotnet test tests/Mcs.Core.Tests --filter "FullyQualifiedName~InMemoryTelemetryStoreTests"
 dotnet test tests/Mcs.Core.Tests --filter "FullyQualifiedName~InMemoryTelemetryStoreTests.Write_ThrowsWhenAFurtherVehicleWouldExceedTheCap"
+
+dotnet run --project tools/trace -- --evidence artifacts/test-evidence   # tools/trace/README.md
 ```
 
 `tests/Mcs.Core.Tests`, `tests/Mcs.Api.Tests`, `tests/Mcs.Adapters.Tests` and
@@ -69,11 +71,18 @@ nothing else. `npm run build` runs `tsc -b` first, so type errors fail there rat
 — never copy `.env.example` into place, its password is a deliberate placeholder.
 
 `.github/workflows/ci.yml` is the authority on what has to pass: a `build-and-test` job (Release
-build, then Core, Api, Adapters, Simulator and Integration tests, then the web build and lint) and a `smoke` job that
-runs `tools/bootstrap-env.sh`, brings the stack up and runs `Mcs.System.Tests` with
-`MCS_SMOKE_REQUIRED=1`. Every compose invocation there carries `--env-file .env`, without which
-the `:?` guards fail the command. The log dump on failure is ordered before teardown on purpose —
-`down` takes the containers' logs with it.
+build, then Core, Api, Adapters, Simulator and Integration tests, then the web build and lint), a
+`smoke` job that runs `tools/bootstrap-env.sh`, brings the stack up and runs `Mcs.System.Tests`
+with `MCS_SMOKE_REQUIRED=1`, and a `trace` job needing both. Every compose invocation there carries
+`--env-file .env`, without which the `:?` guards fail the command. The log dump on failure is
+ordered before teardown on purpose — `down` takes the containers' logs with it.
+
+Every test step writes a TRX (and the console a JUnit xml) into `artifacts/test-evidence`, which
+each job uploads; `trace` merges the two and runs `tools/trace` over them. **It cannot be a step in
+either job**: MCS-009's only Test evidence is a smoke test, and the smoke job runs after the fast
+one. Deterministic `LogFileName`s are not cosmetic — the trace asserts the set of results it
+received against the solution's list of test projects, so a suite that stopped running is a named
+failure rather than a requirement that quietly loses its evidence.
 
 Pinned versions that must agree across the repo: .NET SDK 10.0.302 (`global.json`, the SDK tags in
 `src/Mcs.Api/Dockerfile` and `src/Mcs.Simulator/Dockerfile`, and CI via `global-json-file`), Node 24.18.1 (`.nvmrc`, `web/Dockerfile`,
@@ -91,7 +100,9 @@ web/                React + TypeScript + Vite + MapLibre console
 web/public/basemap  the offline MapLibre style; its rationale lives in the file's `metadata`
 deploy/migrations/  numbered .sql, embedded into Mcs.Api and applied on startup
 tools/mavlink-vectors/  the pymavlink generator for the codec's byte vectors
+tools/trace/        checks docs/requirements.md against the tests and links it claims
 tests/              unit (Core, Api, Adapters, Simulator) · integration (real Postgres) · system (compose smoke)
+tests/Verifies.cs   the [Verifies("MCS-NNN")] tag, linked into the suites that carry one
 ```
 
 **`Mcs.Core` has zero package references and must keep them.** No logger, no web, no
@@ -290,6 +301,34 @@ sink stays in code**, in both hosts, because a container missing its `appsetting
 built a stage-two logger with no sinks and died printing nothing at all. `Enrich.FromLogContext`
 stays in code because `CorrelationIdMiddleware` depends on it.
 Health-probe and SSE request lines are logged at Debug on purpose.
+
+### The requirements trace
+
+`tools/trace` is a zero-package .NET console app that checks `docs/requirements.md` against what a
+test run actually reported. **A row whose Method is Test needs a test that reported passing**, so
+tags are read from assemblies and outcomes from TRX and JUnit — never from test source. A tag on a
+skipped test satisfies every check that asks "is there a test for this" and proves nothing, which
+is `MCS_SMOKE_REQUIRED`'s failure one layer up.
+
+`[Verifies("MCS-NNN")]` lives in `tests/Verifies.cs` and is `<Compile Include>`-linked into the
+suites that use it. That is the opposite call from `FakeClock`, which is copied per suite on
+purpose: two clocks may diverge harmlessly, two spellings of this may not, because the trace
+matches the attribute **by name**. It is not an xUnit `[Trait]` — traits reach the VSTest object
+model and the TRX writer drops every one MSTest did not set, so a trait is invisible to the one
+tool that needs it. The console has no attributes at all, so a vitest tag is a bracketed
+`[MCS-NNN]` in the test's title; bracketed rather than bare so that mentioning a requirement in a
+title is not the same as claiming to verify it.
+
+**A row marked `not verified` is a pass**, and designing that in from the start is the whole
+safety of the mechanism: without it the cheapest green build is a deleted requirement. Two ratchets
+sit against that — an id may only go missing if the `Removed` table names it, and a `not verified`
+row that tagged tests actually pass against is reported as stale in the other direction. Neither
+catches a *downgrade* from verified to not-verified; that limit is stated in the tool rather than
+papered over.
+
+Tag exactly what `docs/requirements.md` names, at the level it names it. The correspondence between
+the prose and the tags is the thing being mechanised, and a tag placed more broadly than the row
+claims quietly widens the claim.
 
 ## Conventions
 

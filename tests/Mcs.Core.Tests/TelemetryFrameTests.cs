@@ -103,6 +103,7 @@ public class TelemetryFrameTests
     }
 
     [Fact]
+    [Verifies("MCS-005")]
     public void Assembly_ExposesExactlyOnePublicMemberThatTurnsATelemetryIntoAFrame()
     {
         // The same claim with no exclusions, narrowed by shape instead: a public member that

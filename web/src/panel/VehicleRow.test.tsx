@@ -44,7 +44,7 @@ const renderRow = (frame: VehicleFrame, station: 'connected' | 'unreachable' = '
 }
 
 describe('a live row', () => {
-  it('shows all six of MCS-001 fields and no chip', () => {
+  it('shows all six fields and no chip [MCS-001]', () => {
     const row = renderRow(frameIn('Live'))
 
     expect(row.getAttribute('data-state')).toBe('live')
@@ -69,7 +69,7 @@ describe('a live row', () => {
   })
 })
 
-describe('a stale row', () => {
+describe('a stale row [MCS-003]', () => {
   //  MCS-003: the stale state includes the age, on screen and not in a tooltip.
   it('renders the age', () => {
     renderRow(frameIn('Stale', { ageMilliseconds: 7_400 }))
@@ -103,7 +103,7 @@ describe('a stale row', () => {
   })
 })
 
-describe('a lost row', () => {
+describe('a lost row [MCS-003]', () => {
   it('shows the age and drops every reading that only means anything as a current one', () => {
     const row = renderRow(frameIn('Lost', { ageMilliseconds: 252_000 }))
 

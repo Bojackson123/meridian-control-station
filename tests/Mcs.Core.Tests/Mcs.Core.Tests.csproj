@@ -15,6 +15,16 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    Linked, not copied. tools/trace reads this attribute out of the built assembly by name, so
+    a per-suite copy that drifted would tag nothing and report nothing about it. That is the
+    difference from FakeClock, which is duplicated on purpose: two clocks may diverge
+    harmlessly, two spellings of this may not.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Verifies.cs" Link="Verifies.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Mcs.Core\Mcs.Core.csproj" />
   </ItemGroup>

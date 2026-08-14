@@ -40,6 +40,7 @@ public class VehicleTelemetryTests
     }
 
     [Fact]
+    [Verifies("MCS-004")]
     public void Create_DefaultAltitude_ThrowsArgumentExceptionNamingAltitudeAndMcs004()
     {
         // The requirement stated directly: a frame with an unset altitude reference is rejected.
@@ -82,6 +83,7 @@ public class VehicleTelemetryTests
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NegativeInfinity)]
+    [Verifies("MCS-012")]
     public void Create_LatitudeOutOfRange_ThrowsArgumentOutOfRangeNamingLatitude(double latitude)
     {
         ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(
@@ -121,6 +123,7 @@ public class VehicleTelemetryTests
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NegativeInfinity)]
+    [Verifies("MCS-012")]
     public void Create_LongitudeOutOfRange_ThrowsArgumentOutOfRangeNamingLongitude(double longitude)
     {
         ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(
@@ -144,6 +147,7 @@ public class VehicleTelemetryTests
                 .GroundSpeedMetersPerSecond);
 
     [Fact]
+    [Verifies("MCS-012")]
     public void Create_ImplausiblyFastVehicle_IsAccepted()
     {
         // Pins the documented decision not to invent a ceiling. There is no defensible speed
@@ -160,6 +164,7 @@ public class VehicleTelemetryTests
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NegativeInfinity)]
+    [Verifies("MCS-012")]
     public void Create_GroundSpeedNegativeOrNonFinite_ThrowsArgumentOutOfRange(double speed)
     {
         // Negative and non-finite are wrong regardless of airframe -- speed over the ground is a
@@ -279,6 +284,7 @@ public class VehicleTelemetryTests
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NegativeInfinity)]
+    [Verifies("MCS-012")]
     public void Create_NonFiniteHeading_ThrowsArgumentOutOfRange(double heading)
     {
         // Normalisation has no answer for these -- NaN % 360 is NaN -- so they are rejected
@@ -352,6 +358,7 @@ public class VehicleTelemetryTests
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NegativeInfinity)]
+    [Verifies("MCS-012")]
     public void Create_BatteryOutOfRange_ThrowsArgumentOutOfRangeNamingBattery(double battery)
     {
         ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(

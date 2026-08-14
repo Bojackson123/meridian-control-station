@@ -28,6 +28,7 @@ public class AltitudeTests
     [InlineData(-1)]
     [InlineData(int.MaxValue)]
     [InlineData(int.MinValue)]
+    [Verifies("MCS-004")]
     public void FromMeters_UndeclaredReference_ThrowsArgumentOutOfRange(int rawReference)
     {
         AltitudeReference reference = (AltitudeReference)rawReference;
@@ -47,6 +48,7 @@ public class AltitudeTests
     [InlineData(0)]
     [InlineData(99)]
     [InlineData(-1)]
+    [Verifies("MCS-004")]
     public void FromFeet_UndeclaredReference_ThrowsArgumentOutOfRange(int rawReference)
     {
         ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(

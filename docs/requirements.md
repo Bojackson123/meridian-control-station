@@ -33,6 +33,16 @@ stops it from hardening into a fact by being repeated.
 [removed](#removed) section with the reason. The section exists before there is any incentive to
 use it, which is the entire mechanism.
 
+**This table is checked rather than maintained.** A CI job runs `tools/trace` against it on every
+push. A row whose method is Test must name at least one test that *reported passing* — a tag on a
+skipped test, or on one whose suite quietly stopped running, is a failure and says so in those
+words. A row verified by Inspection, Demonstration or Analysis must carry an `evidence:` link, and
+every `evidence:` link in this file has to resolve — including the ones on rows that were not
+obliged to have one. A tag naming a requirement that is not here fails, and so does an id that has gone
+missing without a line in [removed](#removed). Rows that say **not verified** are exempt from all
+of that, deliberately: a gate whose cheapest satisfaction is deleting the requirement is worse than
+no gate.
+
 ---
 
 ## The table
@@ -68,8 +78,8 @@ period of the newest data. All six fields for *every* vehicle, not for the selec
 requirement satisfied only where the operator last clicked is not satisfied, which is why the panel
 shows two lines per row rather than an expander.
 
-**Evidence.** The fields: `web/src/panel/VehicleRow.test.tsx`, *shows all six of MCS-001 fields and
-no chip*. The budget was measured rather than assumed, at twelve vehicles, in two halves —
+**Evidence.** The fields: `web/src/panel/VehicleRow.test.tsx`, *shows all six fields and no chip*.
+The budget was measured rather than assumed, at twelve vehicles, in two halves —
 0.53 ms median through the station and 11.7 ms median to the panel, worst cases 7.05 ms and
 40.3 ms, about 5% of the budget between them. Method and the parts of the path that were *not*
 measured are in `evidence: notes/latency-at-twelve.md`. The station half re-measures itself in CI
