@@ -2,35 +2,48 @@
 
 [![CI](https://github.com/Bojackson123/meridian-control-station/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Bojackson123/meridian-control-station/actions/workflows/ci.yml)
 
-A ground control station for simulated uncrewed vehicles: live fleet telemetry, mission
-planning with pre-flight conflict checking, and command with a durable audit trail.
+A ground control station for simulated uncrewed vehicles. Live fleet telemetry today; mission
+planning with pre-flight conflict checking, and command with a durable audit trail, are what it is
+being built toward.
 
-![The console at v0.1: one simulated vehicle on the bundled offline basemap, updating at 1 Hz](docs/demo-v0.1.gif)
+![Twelve aircraft on a dark offline basemap. One goes silent: its marker turns hollow and amber
+with a chip counting the age of its data, on the map and in its panel row at once, while the other
+eleven keep flying — then becomes a dashed ring with no heading at all.](docs/demo-v1.0.gif)
 
-<sub>Recorded at `v0.1`, when the vehicle came from a hardcoded feed. The console now draws an
-aircraft arriving as MAVLink over UDP; a new recording lands with the next tag.</sub>
+<sub>Twelve aircraft live; one simulator stopped four seconds in. Stale at 3 s, lost at 15 s, by the
+station clock — real time, no speed-up. Twelve of them is `tools/fleet-at-twelve.ps1`, a development
+harness; `docker compose up` flies one.</sub>
 
 ---
 
 ## What this is
 
-A personal project, built in the open one working slice at a time. This is `v0.1` plus the
-MAVLink work that has landed since: a simulated aircraft flying a route in its own process,
-transmitting real MAVLink v2 over UDP to a station that decodes it onto a map — with a database
-the station migrates on startup, structured logs, and the whole thing under one
-`docker compose up`.
+A personal project, built in the open one working slice at a time. At `v1.0` that is: a simulated
+aircraft flying a route in its own process, transmitting real MAVLink v2 over UDP to a station that
+decodes it with a hand-written parser onto a map — and a console that says how old what you are
+looking at is, and stops claiming to be current the moment it isn't. With a database the station
+migrates on startup, structured logs, and the whole thing under one `docker compose up`.
 
 The table below says exactly what runs at this tag, and nothing in this file describes
 anything that doesn't. It does not connect to real aircraft.
 
-The same discipline in more detail: [`docs/requirements.md`](docs/requirements.md) states what the
-station is required to do and how each requirement is verified — including the two that are not,
-and the one that is only half-verified. Those claims are not maintained by hand: a CI job reads the
-table, matches each row against the tests that reported passing and the evidence links that still
-resolve, and fails the build when they disagree.
-[`docs/what-can-go-wrong.md`](docs/what-can-go-wrong.md)
-is where those requirements came from. [`docs/interfaces.md`](docs/interfaces.md) is the contract
-itself: what a vehicle has to supply, in which units, and what the station serves back.
+Four documents, in the order they are worth reading. [`docs/overview.md`](docs/overview.md) explains
+the design: the core/adapter split, why a vehicle's claims and the station's observations are
+different types, and where persistence does and does not apply.
+[`docs/requirements.md`](docs/requirements.md) states what the station is required to do and how each
+requirement is verified — **thirteen requirements, ten verified, one partly, and two not verified,
+which say so and why in their own rows.** Eleven of the thirteen name a test as their method, three
+an inspection and one a demonstration; two rows name more than one, so the methods overlap rather
+than partition. Naming a method is not the same as satisfying it, which is what the two unverified
+rows are.
+[`docs/what-can-go-wrong.md`](docs/what-can-go-wrong.md) is where those requirements came from, and
+[`docs/interfaces.md`](docs/interfaces.md) is the contract itself: what a vehicle has to supply, in
+which units, and what the station serves back.
+
+None of that is maintained by hand. A CI job reads the requirements table, matches each row against
+the tests that *reported passing* and the evidence links that still resolve, and fails the build
+when they disagree — in both directions, since a row claiming to be unverified while tagged tests
+pass against it is also wrong.
 
 ---
 
@@ -86,24 +99,23 @@ There is no fake feed behind any of it. The hardcoded one that flew at `v0.1` wa
 MAVLink path could replace it, rather than left behind a configuration flag — a second source of
 truth about what the console is showing is a debugging cost with no upside.
 
-| | Status at `v0.1` |
+| | Status at `v1.0` |
 | --- | --- |
 | Telemetry model and ingest boundary | working, tested |
 | Bounded store — 12 vehicles, per-vehicle history, live subscriptions | working, tested |
-| Fake vehicle feed | **deleted after `v0.1`** — the MAVLink path replaced it, and it was removed rather than left switchable |
 | Structured JSON logging | working |
 | Postgres — schema migration on startup, `/health` and `/health/db` | working, tested |
 | Telemetry HTTP API — `/api/vehicles` and an SSE `/api/telemetry/stream` | working, tested |
 | Offline basemap — dark MapLibre style, zoom-adaptive graticule, no third-party requests | working |
 | Map console — the fleet on the basemap, each marker oriented by heading | working; a vehicle that reported no heading is drawn without a nose rather than pointed north |
 | Persistence of domain data | not yet — the schema mechanism is proven, the tables that use it arrive with the features that define them |
-| Console state language — live / stale (+age) / lost, on the map and in the fleet panel | landed after `v0.1`, tested; designed once in `docs/notes/console-design.md` and rendered from one derivation, so a marker and its row cannot disagree |
+| Console state language — live / stale (+age) / lost, on the map and in the fleet panel | working, tested; designed once in `docs/notes/console-design.md` and rendered from one derivation, so a marker and its row cannot disagree |
 | Alerts and acknowledgement | not yet — the state language and the bar they belong in are designed and built; nothing evaluates an alert |
 | Docker Compose — database, API, console and simulator, one command, offline | working |
-| MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | landed after `v0.1`, tested |
-| MAVLink message decode — the four messages the console displays, assembled into telemetry | landed after `v0.1`, tested against the same vectors |
-| MAVLink over UDP — a bound socket feeding the codec, through the ingest boundary, into the store | landed after `v0.1`, tested |
-| Air simulator — bank-limited kinematics and a waypoint follower, transmitting MAVLink from its own process and container | landed after `v0.1`, tested; its turn radius is asserted against `v²/(g·tan φ)`, and its bytes against the station's own decoder |
+| MAVLink v2 framing — parser and serializer, verified byte-for-byte against pymavlink vectors | working, tested |
+| MAVLink message decode — the four messages the console displays, assembled into telemetry | working, tested against the same vectors |
+| MAVLink over UDP — a bound socket feeding the codec, through the ingest boundary, into the store | working, tested |
+| Air simulator — bank-limited kinematics and a waypoint follower, transmitting MAVLink from its own process and container | working, tested; its turn radius is asserted against `v²/(g·tan φ)`, and its bytes against the station's own decoder |
 | Reading MAVLink from a real vehicle | not yet — the link is proved end to end against the simulator; nothing has been pointed at an autopilot |
 | Mission planning, deconfliction, auth | not yet |
 
@@ -122,7 +134,9 @@ tests/              unit tests for the core, the host, the codec and the aircraf
                     drives the running compose stack over HTTP, and skips when no stack is up
 deploy/migrations/  numbered .sql files, applied by the API on startup
 deploy/compose/     compose.yaml — the whole stack, database and API and console and aircraft
+docs/               the design, the requirements, the hazards and the wire contract
 docs/notes/         engineering notes, including what got stuck and why
+tools/trace/        the CI job that checks the requirements table against what actually passed
 ```
 
 The core holds the vehicle-agnostic domain: what telemetry is, how it enters the system, and
@@ -152,10 +166,11 @@ the test of that, and it will be run against a real diff.
   a bank-limited turn, a bounded climb rate, and no wind, drag or mass. The one property spent
   time on is the turn, because a later separation margin is a claim about it; a better aircraft
   would not make the station better.
-- One aircraft. The simulator flies a single vehicle, and the station's 12-vehicle bound is
-  designed into the data structures and covered by tests — including the rejection of a
-  thirteenth — but it is **not demonstrated on screen**. Showing it would mean inventing vehicles,
-  which is the thing that was just deleted, so it is stated rather than staged.
+- One aircraft in the stack. `docker compose up` flies a single vehicle; the twelve in the demo
+  above are twelve simulator processes started by a development harness, which is the only way
+  twelve is ever reached here. The station's 12-vehicle bound is designed into the data structures
+  and covered by tests, including the rejection of a thirteenth — but twelve *aircraft* is a thing
+  the repo can show, not a thing it ships.
 - Telemetry is in-memory and bounded. There is no durable history, and that is a stated
   non-goal rather than a gap.
 - No authentication. Anything the API exposes is exposed to anyone who can reach it.
@@ -180,14 +195,74 @@ the test of that, and it will be run against a real diff.
   — height above the point the vehicle armed at — is decoded and deliberately unused, because it
   equals height above the ground only over flat terrain and there is no terrain model here to
   make the conversion honest.
-- Fault flags are stubbed at both ends. The simulator sends one healthy sensor mask, always;
-  `SYS_STATUS`'s sensor-health bitmasks are decoded and read by nothing; and the link status the
+- **The "lost" threshold is a notional number.** Stale at 3 s is sourced — three times the slowest
+  configured telemetry period, which is what separates jitter from link loss. Lost at 5× that is
+  not: the *construction* is sourced, and nothing measured says five rather than four or eight. It
+  is bounded from above by something real, in that a vehicle has to reach lost well inside the forty
+  seconds the console waits before treating the stream itself as dead. Labelling it notional is what
+  keeps it from hardening into a fact by being repeated.
+- **Two verification gaps are named in the requirements table rather than smoothed over.** The
+  console's *detection* of a dead station is untested — the rendering of it is, and the timer that
+  decides three ticks have been missed is not. And the browser half of the one-second display budget
+  was measured by hand rather than in CI, so it would need re-measuring after any change to how the
+  console renders. Both are in [`docs/requirements.md`](docs/requirements.md), in the rows they
+  weaken.
+- **Fault flags are stubbed at both ends** — the word is *stubbed*, not *minimal*. The simulator
+  sends one healthy sensor mask, always, and that constant is a marked injection point rather than
+  a feature; `SYS_STATUS`'s sensor-health bitmasks are decoded and read by nothing; and the link status the
   API reports is always healthy, because a decoded frame is one that arrived, so this path holds
   no evidence of a degraded link. Whether a vehicle has gone quiet is a separate question, asked
   against the station's clock, and the console answers that one.
 - Nothing evaluates an alert. The bar across the top of the console is the place alerts belong and
   it currently carries one thing — whether the station is still talking — and the fleet panel
   reserves the space the abort control will occupy without drawing a control that does nothing.
+
+---
+
+## What I learned
+
+Findings, not reflections. Each of these cost real time and changed how something here is built;
+the contemporaneous version of most of them is in
+[`docs/notes/stuck.md`](docs/notes/stuck.md).
+
+**Round-tripping your own encoder proves nothing.** A parser fed its own writer's output agrees
+with itself no matter how wrong both halves are — a transposed CRC seed, a checksum taken over the
+wrong span and an off-by-one truncation rule all cancel exactly. The evidence for this codec is
+therefore pymavlink's bytes, asserted in both directions separately, and the round-trip tests are
+explicitly not the proof. The same argument decided that the simulator's payload writers are
+written independently of the station's readers: a field at the wrong offset in one cannot cancel
+against the same mistake in the other.
+
+**Nothing may be discarded on the word of a length byte that cannot be verified.** The station
+carries checksum seeds only for the messages it decodes, so an unknown message id has no checksum
+available and its length claim has to be corroborated some other way. Before that guard existed,
+ten bytes of noise in front of eight valid position reports delivered one and destroyed seven — and
+recorded it as a single increment of a counter documented as ordinary traffic. A real loss, reported
+by the one number that means everything is fine. Unknown traffic is the *common* case on a real
+link, which is what made it dangerous.
+
+**A test written for a specific failure mode and never run against that failure mode is a guess
+with a green tick on it.** The smoke suite streams through the proxy as well as directly, to catch
+a proxy that buffers. Turning buffering on did not make it fail — against a fast client on a local
+socket nginx has nothing to decouple, so the setting the assertion was aimed at is invisible from
+there. The line stays, because the failure it prevents is real for a browser two networks away; but
+what the test actually covers got rewritten to what it covers, and the suite would have shipped
+green with a comment claiming otherwise if I had trusted it instead of spending twenty minutes
+trying to break it.
+
+**Where the lock boundary goes is a correctness question with one right answer and two answers that
+each look like half of it.** Appending outside the store's gate and fanning out inside it delivers a
+racing subscriber the same frame twice; the mirror image loses the frame entirely, which is the
+hazard this whole system is designed against. Writing the three placements out was what settled it —
+and it surfaced a second failure that had nothing to do with subscriptions, where two writers can
+fan out in the opposite order to the one they appended in.
+
+**The code was correct and the prose above it was not, and only the prose is load-bearing.** That
+same change left three paragraphs of type documentation quietly false — a "hot path" sentence
+describing a lock that no longer existed, and an independence claim that had become the opposite of
+true. Nothing failed, nothing warned, and the next person reads the paragraph. Rewriting the prose
+above a type is part of changing the type here for that reason, and it is why the comments in this
+repo carry the rejected alternative rather than a restatement of the line beneath them.
 
 ---
 
@@ -203,6 +278,13 @@ In order, without dates:
   editing the core.
 - **Pre-flight conflict checking.** Mission plans checked against each other before anything
   flies.
+
+And three that are about the evidence rather than the capability, in the order they would pay off:
+the console's dead-station *detection* under test against a fake clock, which is the weakest row in
+the requirements table and a unit test's worth of work; the adapter pointed at a real autopilot's
+SITL, which is the only thing that turns "MAVLink v2" from a claim about this codec into a claim
+about the protocol; and a recorded telemetry stream the console can be replayed against, so a
+display bug can be reproduced instead of described.
 
 ---
 
@@ -223,8 +305,11 @@ The `docker run` is one line on purpose: a `\` continuation is a bash-ism, and p
 into PowerShell runs a truncated command that fails somewhere less obvious than it should.
 
 `dotnet test` needs Docker running for the integration suite, which starts its own
-throwaway Postgres. The unit tests (`tests/Mcs.Core.Tests`, `tests/Mcs.Api.Tests`) need
-nothing.
+throwaway Postgres. The four unit suites — `Mcs.Core.Tests`, `Mcs.Api.Tests`,
+`Mcs.Adapters.Tests` and `Mcs.Simulator.Tests` — need neither Docker nor Python: the codec's
+byte vectors are committed rather than generated, so pymavlink is a thing this repo was proved
+against once and not a thing you have to install. The system suite skips itself when no compose
+stack is listening.
 
 The app listens on `http://localhost:5271`:
 
@@ -283,7 +368,8 @@ much traffic for a line each. The numbers cohere, and it is worth checking that 
 is 482 of 1023 because only `GLOBAL_POSITION_INT` completes a telemetry frame — 4 Hz out of the
 8.5 Hz the four message types add up to. `positionsWithoutHud=1` is the first position of the
 run arriving before any `VFR_HUD` had been seen, which is exactly why speed and heading are
-nullable on the wire.
+nullable on the wire — expect a 0 there about as often, since which of the two messages leaves
+first at startup is a race and nothing depends on the answer.
 
 Nothing in the parser logs. Every discard — a bad CRC, an unknown message id, a signed frame —
 increments a counter above instead, since a log line per unknown message would train whoever is
@@ -325,7 +411,9 @@ snapshot that has stopped arriving. It reconnects on its own, and the fleet come
 station does.
 
 Twelve of them at once is `tools/fleet-at-twelve.ps1` (or `.sh`), which is how the layout's claim
-to fit twelve rows without a scrollbar gets checked rather than asserted.
+to fit twelve rows without a scrollbar gets checked rather than asserted. `tools/record-demo.ps1`
+stops one of them on a countdown and then reports the two transitions as the station reports them,
+which is how the recording at the top of this file was made and how it was checked afterwards.
 
 Everything above is decided in `docs/notes/console-design.md` and its working drawing, once,
 before any of it was built. Two rules from it are worth knowing while looking at the screen: **no
@@ -381,6 +469,10 @@ aircraft orbits a waypoint it can never reach and renders as a tidy loiter.
 ---
 
 ## Four decisions worth knowing about
+
+The four worth knowing before reading any code. The rest of the design — the layering, the
+adapter contract and what it deliberately omits, the bounds and where they come from — is
+[`docs/overview.md`](docs/overview.md).
 
 **A vehicle's claims and the station's observations are different types.**
 `VehicleTelemetry` holds only what a vehicle reported; `TelemetryFrame` pairs one with
