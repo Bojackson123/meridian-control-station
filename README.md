@@ -117,7 +117,7 @@ truth about what the console is showing is a debugging cost with no upside.
 | MAVLink over UDP — a bound socket feeding the codec, through the ingest boundary, into the store | working, tested |
 | Air simulator — bank-limited kinematics and a waypoint follower, transmitting MAVLink from its own process and container | working, tested; its turn radius is asserted against `v²/(g·tan φ)`, and its bytes against the station's own decoder |
 | Reading MAVLink from a real vehicle | not yet — the link is proved end to end against the simulator; nothing has been pointed at an autopilot |
-| Mission planning, deconfliction, auth | not yet |
+| Mission planning, deconfliction, auth | not yet — none of the three is started. The command-safety requirement is in the requirements table already, as an unverified row rather than an absent one; that the API has no authentication is in the limitations below |
 
 ---
 
